@@ -567,6 +567,10 @@ supervisor(int sockPair[2])
 int
 main(int argc, char *argv[])
 {
+    // printf("SECCOMP_IOCTL_NOTIF_RECV %lu\n", SECCOMP_IOCTL_NOTIF_RECV);
+    // printf("SECCOMP_IOCTL_NOTIF_ID_VALID %lu\n", SECCOMP_IOCTL_NOTIF_ID_VALID);
+    // printf("SECCOMP_IOCTL_NOTIF_SEND %lu\n", SECCOMP_IOCTL_NOTIF_SEND);
+    // return 0;
     int               sockPair[2];
     struct sigaction  sa;
 

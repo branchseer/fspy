@@ -4,4 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# async-send-fd = { version = "1.2.0", features = ["tokio"] }
 libc = "0.2.171"
+linux-raw-sys = { version = "0.9.4", features = ["ptrace"] }
+passfd = { git = "https://github.com/polachok/passfd", features = ["async"] }
+tokio = { version = "1.44.2", features = ["net", "process", "io-util"]}
+
+[dev-dependencies]
+tokio = { version = "*", features = ["rt", "macros"] }
