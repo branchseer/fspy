@@ -1,13 +1,11 @@
 use std::{
-    ffi::{c_void, CStr},
-    io::{self, Write},
-    mem::{offset_of, zeroed},
-    os::{
+    convert::Infallible, ffi::{c_void, CStr}, io::{self, Write}, mem::{offset_of, zeroed}, os::{
         fd::{AsRawFd, FromRawFd, IntoRawFd},
         unix::net::UnixStream as StdUnixStream,
-    },
+    }, pin::pin
 };
 
+use futures_util::future::select;
 use libc::{c_int, memset, SECCOMP_GET_NOTIF_SIZES};
 use passfd::{tokio::FdPassingExt as _, FdPassingExt as _};
 use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch};
@@ -122,7 +120,9 @@ async fn main() -> io::Result<()> {
 
             let filter = SeccompFilter::new(
                 [
-                    (libc::SYS_mkdir, vec![])
+                    (libc::SYS_mkdir, vec![]),
+                    (libc::SYS_openat, vec![]),
+                    (libc::SYS_open, vec![]),
                 ].into_iter().collect(),
                 SeccompAction::Allow,
                 SeccompAction::Raw(linux_raw_sys::ptrace::SECCOMP_RET_USER_NOTIF),
@@ -131,51 +131,7 @@ async fn main() -> io::Result<()> {
             .unwrap();
 
             let mut filter = BpfProgram::try_from(filter).unwrap();
-/*
-            const X32_SYSCALL_BIT: u32 = 0x40000000;
-            let mut filter = [
-                libc::BPF_STMT(
-                    (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS) as _,
-                    offset_of!(libc::seccomp_data, arch) as _,
-                ),
-                libc::BPF_JUMP(
-                    (libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K) as _,
-                    linux_raw_sys::ptrace::AUDIT_ARCH_X86_64,
-                    0,
-                    2,
-                ),
-                libc::BPF_STMT(
-                    (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS) as _,
-                    offset_of!(libc::seccomp_data, nr) as _,
-                ),
-                libc::BPF_JUMP(
-                    (libc::BPF_JMP | libc::BPF_JGE | libc::BPF_K) as _,
-                    X32_SYSCALL_BIT,
-                    0,
-                    1,
-                ),
-                libc::BPF_STMT(
-                    (libc::BPF_RET | libc::BPF_K) as _,
-                    linux_raw_sys::ptrace::SECCOMP_RET_KILL_PROCESS,
-                ),
-                /* mkdir() triggers notification to user-space supervisor */
-                libc::BPF_JUMP(
-                    (libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K) as _,
-                    libc::SYS_mkdir as _,
-                    0,
-                    1,
-                ),
-                libc::BPF_STMT(
-                    (libc::BPF_RET + libc::BPF_K) as _,
-                    linux_raw_sys::ptrace::SECCOMP_RET_USER_NOTIF,
-                ),
-                /* Every other system call is allowed */
-                libc::BPF_STMT(
-                    (libc::BPF_RET | libc::BPF_K) as _,
-                    linux_raw_sys::ptrace::SECCOMP_RET_ALLOW,
-                ),
-            ];
- */
+
             let mut prog = libc::sock_fprog {
                 len: filter.len() as _,
                 filter: filter.as_mut_ptr().cast(),
@@ -197,12 +153,12 @@ async fn main() -> io::Result<()> {
         })
     };
 
-    let handle = tokio::spawn(async move {
+    let mut handle_notify = async move {
         let notify_fd = receiver.recv_fd().await?;
         drop(receiver);
         drop(sender);
         let mut async_notify = AsyncFd::new(notify_fd)?;
-
+        
         const SECCOMP_IOCTL_NOTIF_RECV: libc::c_ulong = 3226476800;
         const SECCOMP_IOCTL_NOTIF_ID_VALID: libc::c_ulong = 1074274562;
         const SECCOMP_IOCTL_NOTIF_SEND: libc::c_ulong = 3222806785;
@@ -213,17 +169,25 @@ async fn main() -> io::Result<()> {
 
         loop {
             let (req, resp) = notify_buf.zeroed();
+            eprintln!("receiving");
             let _ready_gurad = async_notify.readable().await?;
+            eprintln!("readable");
             let ret = unsafe { libc::ioctl(notify_fd, SECCOMP_IOCTL_NOTIF_RECV, &raw mut *req) };
+            eprintln!("received");
+
             if ret < 0 && unsafe { *libc::__errno_location() } == libc::EINTR {
                 continue;
             }
             check_nonnegative(ret)?;
 
-            dbg!((req.data.nr, libc::SYS_mkdir));
-
             resp.id = req.id;
             resp.flags = libc::SECCOMP_USER_NOTIF_FLAG_CONTINUE as _;
+
+            let path_remote_ptr = if libc::c_long::from(req.data.nr) == libc::SYS_openat {
+                req.data.args[1]
+            } else {
+                req.data.args[0]
+            };
 
             let local_iov = libc::iovec {
                 iov_base: path_buf.as_mut_ptr().cast(),
@@ -231,7 +195,7 @@ async fn main() -> io::Result<()> {
             };
 
             let remote_iov = libc::iovec {
-                iov_base: req.data.args[0] as _,
+                iov_base: path_remote_ptr as _,
                 iov_len: path_buf.len(),
             };
 
@@ -244,7 +208,7 @@ async fn main() -> io::Result<()> {
                     // the process is terminated
                     continue;
                 } else {
-                    return Err(err);
+                    return Result::<Infallible, io::Error>::Err(err);
                 };
             };
             let path = CStr::from_bytes_until_nul(&path_buf[..read_size])
@@ -256,21 +220,22 @@ async fn main() -> io::Result<()> {
                 continue;
             }
             check_nonnegative(ret)?;
-
-            eprintln!("resp sent");
-
-            break;
         }
-        io::Result::Ok(())
-    });
+    };
 
-    let status = command.status().await.unwrap();
-    dbg!(status);
+    let mut status_fut =  Box::pin(command.status());
+    let mut handle_notify = Box::pin(handle_notify);
 
-    dbg!(handle.await);
-
-    // let mut buf = [0u8; 3];
-    // receiver.read_exact(&mut buf).await?;
-    // dbg!(std::str::from_utf8(&buf));
+    match select(status_fut, handle_notify).await {
+        futures_util::future::Either::Left((status_res, handle_notify)) => {
+            dbg!(status_res);
+            // handle_notify.await;
+        },
+        futures_util::future::Either::Right((handle_notify_res, status_res)) => {
+            let Err(handle_notify_err) = handle_notify_res;
+            dbg!(handle_notify_err);
+            status_res.await;
+        },
+    }
     Ok(())
 }
