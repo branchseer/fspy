@@ -1,5 +1,5 @@
 use std::{
-    ffi::c_void,
+    ffi::{c_void, CStr},
     io::{self, Write},
     mem::{offset_of, zeroed},
     os::{
@@ -10,6 +10,7 @@ use std::{
 
 use libc::{c_int, memset, SECCOMP_GET_NOTIF_SIZES};
 use passfd::{tokio::FdPassingExt as _, FdPassingExt as _};
+use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch};
 use tokio::{
     io::{unix::AsyncFd, AsyncReadExt},
     net::UnixStream as TokioUnixStream,
@@ -90,6 +91,17 @@ impl Drop for SeccompNotifyBuf {
     }
 }
 
+
+cfg_if::cfg_if! {
+    if #[cfg(target_arch = "x86_64")] {
+        fn current_target_arch() -> TargetArch { TargetArch::x86_64 }
+    } else if #[cfg(target_arch = "aarch64")] {
+        fn current_target_arch() -> TargetArch { TargetArch::aarch64 }
+    } else {
+        fn current_target_arch() -> TargetArch { compile_error!("Unsupported arch") }
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
     let (mut receiver, sender) = TokioUnixStream::pair()?;
@@ -97,8 +109,8 @@ async fn main() -> io::Result<()> {
     sender.set_nonblocking(false)?;
     let sender_fd = sender.as_raw_fd();
     let receiver_fd = receiver.as_raw_fd();
-    let mut command = Command::new("mkdir");
-    command.args(["/usr"]);
+    let mut command = Command::new("bash");
+    command.args(["-c", "mkdir /etc/hosts"]);
 
     // let x = offset_of!(libc::seccomp_data, arch);
 
@@ -108,6 +120,18 @@ async fn main() -> io::Result<()> {
             drop(unsafe { StdUnixStream::from_raw_fd(receiver_fd) });
             check_nonnegative(libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))?;
 
+            let filter = SeccompFilter::new(
+                [
+                    (libc::SYS_mkdir, vec![])
+                ].into_iter().collect(),
+                SeccompAction::Allow,
+                SeccompAction::Raw(linux_raw_sys::ptrace::SECCOMP_RET_USER_NOTIF),
+                current_target_arch(),
+            )
+            .unwrap();
+
+            let mut filter = BpfProgram::try_from(filter).unwrap();
+/*
             const X32_SYSCALL_BIT: u32 = 0x40000000;
             let mut filter = [
                 libc::BPF_STMT(
@@ -151,10 +175,10 @@ async fn main() -> io::Result<()> {
                     linux_raw_sys::ptrace::SECCOMP_RET_ALLOW,
                 ),
             ];
-
+ */
             let mut prog = libc::sock_fprog {
                 len: filter.len() as _,
-                filter: filter.as_mut_ptr(),
+                filter: filter.as_mut_ptr().cast(),
             };
 
             let notify_fd = seccomp(
@@ -185,10 +209,12 @@ async fn main() -> io::Result<()> {
 
         let mut notify_buf = SeccompNotifyBuf::alloc()?;
 
+        let mut path_buf = [0u8; libc::PATH_MAX as usize];
+
         loop {
             let (req, resp) = notify_buf.zeroed();
-            let readable_nofity = async_notify.readable_mut().await?;
-            let ret = unsafe { libc::ioctl(*readable_nofity.get_inner(), SECCOMP_IOCTL_NOTIF_RECV, &raw mut *req) };
+            let _ready_gurad = async_notify.readable().await?;
+            let ret = unsafe { libc::ioctl(notify_fd, SECCOMP_IOCTL_NOTIF_RECV, &raw mut *req) };
             if ret < 0 && unsafe { *libc::__errno_location() } == libc::EINTR {
                 continue;
             }
@@ -198,11 +224,37 @@ async fn main() -> io::Result<()> {
 
             resp.id = req.id;
             resp.flags = libc::SECCOMP_USER_NOTIF_FLAG_CONTINUE as _;
-            let writable_notify = async_notify.writable_mut().await?;
-            let ret = unsafe { libc::ioctl(*writable_notify.get_inner(), SECCOMP_IOCTL_NOTIF_SEND, &raw mut *resp) };
+
+            let local_iov = libc::iovec {
+                iov_base: path_buf.as_mut_ptr().cast(),
+                iov_len: path_buf.len(),
+            };
+
+            let remote_iov = libc::iovec {
+                iov_base: req.data.args[0] as _,
+                iov_len: path_buf.len(),
+            };
+
+            let read_size =
+                unsafe { libc::process_vm_readv(req.pid as _, &local_iov, 1, &remote_iov, 1, 0) };
+            let Ok(read_size) = usize::try_from(read_size) else {
+                let err = io::Error::last_os_error();
+
+                if err.raw_os_error() == Some(libc::ESRCH) {
+                    // the process is terminated
+                    continue;
+                } else {
+                    return Err(err);
+                };
+            };
+            let path = CStr::from_bytes_until_nul(&path_buf[..read_size])
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+            println!("path: {:?}", path);
+
+            let ret = unsafe { libc::ioctl(notify_fd, SECCOMP_IOCTL_NOTIF_SEND, &raw mut *resp) };
             if ret < 0 && unsafe { *libc::__errno_location() } == libc::ENOENT {
                 continue;
-            } 
+            }
             check_nonnegative(ret)?;
 
             eprintln!("resp sent");

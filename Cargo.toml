@@ -4,10 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# async-send-fd = { version = "1.2.0", features = ["tokio"] }
+cfg-if = "1.0.0"
 libc = "0.2.171"
 linux-raw-sys = { version = "0.9.4", features = ["ptrace"] }
+# async-send-fd = { version = "1.2.0", features = ["tokio"] }
 passfd = { git = "https://github.com/polachok/passfd", features = ["async"] }
+seccompiler = { git = "https://github.com/branchseer/seccompiler", branch = "seccomp-action-raw" }
 tokio = { version = "1.44.2", features = ["net", "process", "io-util"]}
 
 [dev-dependencies]
