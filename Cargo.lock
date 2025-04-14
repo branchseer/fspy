@@ -155,12 +155,11 @@ dependencies = [
 
 [[package]]
 name = "passfd"
-version = "0.2.0"
-source = "git+https://github.com/polachok/passfd#d55881752c16aced1a49a75f9c428d38d3767213"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b332c50e4d07c0011fff51ea305374408319908908bc1dbed7a0ffaaf63a8151"
 dependencies = [
- "futures-core",
  "libc",
- "tokio",
 ]
 
 [[package]]

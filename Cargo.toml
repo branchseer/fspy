@@ -9,9 +9,9 @@ futures-util = "0.3.31"
 libc = "0.2.171"
 linux-raw-sys = { version = "0.9.4", features = ["ptrace"] }
 # async-send-fd = { version = "1.2.0", features = ["tokio"] }
-passfd = { git = "https://github.com/polachok/passfd", features = ["async"] }
+passfd = "0.1.6"
 seccompiler = { git = "https://github.com/branchseer/seccompiler", branch = "seccomp-action-raw" }
-tokio = { version = "1.44.2", features = ["net", "process", "io-util"]}
+tokio = { version = "1.44.2", features = ["net", "process", "io-util", "sync"]}
 
 [dev-dependencies]
 tokio = { version = "*", features = ["rt", "macros"] }
