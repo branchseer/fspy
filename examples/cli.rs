@@ -120,8 +120,10 @@ async fn main() -> io::Result<()> {
 
             let filter = SeccompFilter::new(
                 [
-                    (libc::SYS_mkdir, vec![]),
                     (libc::SYS_openat, vec![]),
+                    #[cfg(target_arch = "x86_64")]
+                    (libc::SYS_mkdir, vec![]),
+                    #[cfg(target_arch = "x86_64")]
                     (libc::SYS_open, vec![]),
                 ].into_iter().collect(),
                 SeccompAction::Allow,
