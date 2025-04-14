@@ -1,24 +1,18 @@
 use std::{
-    convert::Infallible,
-    ffi::{c_void, CStr},
-    io::{self, Write},
-    mem::{offset_of, zeroed},
-    os::{
+    collections::HashSet, convert::Infallible, env::args, ffi::{c_void, CStr}, future::pending, io::{self, Write}, mem::{offset_of, zeroed}, os::{
         fd::{AsRawFd, FromRawFd, IntoRawFd},
         unix::{net::UnixStream, thread::JoinHandleExt},
-    },
-    pin::pin,
-    thread::{park, sleep, spawn, Thread},
-    time::Duration,
+    }, pin::pin, str::from_utf8, thread::{park, sleep, spawn, Thread}, time::Duration
 };
 
-use futures_util::future::select;
+use futures_util::future::{select, Either};
 use libc::{c_int, memset, SECCOMP_GET_NOTIF_SIZES};
 use passfd::FdPassingExt as _;
 use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch};
 use tokio::{
     io::{unix::AsyncFd, AsyncReadExt},
-    process::Command, sync::mpsc,
+    process::Command,
+    sync::mpsc,
 };
 
 fn check_nonnegative(ret: c_int) -> io::Result<()> {
@@ -105,10 +99,7 @@ cfg_if::cfg_if! {
     }
 }
 
-unsafe fn collect_paths(
-    notify_fd: libc::c_int,
-    mut on_path: impl FnMut(&[u8]),
-) -> io::Result<Infallible> {
+unsafe fn collect_paths(notify_fd: libc::c_int, mut on_path: impl FnMut(&[u8])) -> io::Result<()> {
     const SECCOMP_IOCTL_NOTIF_RECV: libc::c_ulong = 3226476800;
     const SECCOMP_IOCTL_NOTIF_ID_VALID: libc::c_ulong = 1074274562;
     const SECCOMP_IOCTL_NOTIF_SEND: libc::c_ulong = 3222806785;
@@ -119,14 +110,16 @@ unsafe fn collect_paths(
 
     loop {
         let (req, resp) = notify_buf.zeroed();
-        eprintln!("receiving");
         let ret = unsafe { libc::ioctl(notify_fd, SECCOMP_IOCTL_NOTIF_RECV, &raw mut *req) };
-        eprintln!("received");
 
-        if ret < 0 && unsafe { *libc::__errno_location() } == libc::EINTR {
-            continue;
+        if ret < 0 {
+            // TODO: is the task terminated or is the syscall interrupted?
+            match unsafe { *libc::__errno_location() } {
+                libc::EINTR => continue,
+                libc::ENOENT => return Ok(()),
+                other => return Err(io::Error::from_raw_os_error(other)),
+            }
         }
-        check_nonnegative(ret)?;
 
         resp.id = req.id;
         resp.flags = libc::SECCOMP_USER_NOTIF_FLAG_CONTINUE as _;
@@ -156,40 +149,30 @@ unsafe fn collect_paths(
                 // the process is terminated
                 continue;
             } else {
-                return Result::<Infallible, io::Error>::Err(err);
+                return Err(err);
             };
         };
-        let path = CStr::from_bytes_until_nul(&path_buf[..read_size])
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
-        on_path(path.to_bytes());
-
         let ret = unsafe { libc::ioctl(notify_fd, SECCOMP_IOCTL_NOTIF_SEND, &raw mut *resp) };
         if ret < 0 && unsafe { *libc::__errno_location() } == libc::ENOENT {
             continue;
         }
         check_nonnegative(ret)?;
+        let path = CStr::from_bytes_until_nul(&path_buf[..read_size])
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+        on_path(path.to_bytes());
     }
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
-    let handler = spawn(|| {
-        eprintln!("pausing");
-        unsafe { libc::pause() };
-        eprintln!("interrupted!");
-    });
-    sleep(Duration::from_secs_f32(1.0));
-    unsafe { libc::pthread_kill(handler.as_pthread_t(), libc::EINTR) };
-    eprintln!("EINTR sent");
-    sleep(Duration::from_secs_f32(2.0));
-    eprintln!("exiting");
-    return Ok(());
-
-    let (mut receiver, sender) = UnixStream::pair()?;
+    let (receiver, sender) = UnixStream::pair()?;
     let sender_fd = sender.as_raw_fd();
     let receiver_fd = receiver.as_raw_fd();
-    let mut command = Command::new("bash");
-    command.args(["-c", "mkdir /etc/hosts"]);
+    let mut args = args();
+    args.next().unwrap();
+    let program = args.next().unwrap();
+    let mut command = Command::new(program);
+    command.args(args);
 
     unsafe {
         command.pre_exec(move || {
@@ -228,42 +211,60 @@ async fn main() -> io::Result<()> {
             if notify_fd == -1 {
                 return Err(io::Error::last_os_error());
             }
-            eprintln!("sending");
             sender.send_fd(notify_fd)?;
-            sender.flush()?;
-            eprintln!("sent");
             Ok(())
         })
     };
 
-    let (tx, rx) = mpsc::unbounded_channel::<io::Result<Vec<u8>>>();
-    let mut notify_loop_handle = spawn(move || {
+    let (tx, mut rx) = mpsc::unbounded_channel::<io::Result<Vec<u8>>>();
+    spawn(move || {
         let notify_fd = receiver.recv_fd();
         drop(receiver);
         drop(sender);
 
-        let Err(err) =
-            notify_fd.and_then(|notify_fd| unsafe { collect_paths(notify_fd, |path| {
-                tx.send(Ok(path.to_vec()));
+        if let Err(err) = notify_fd.and_then(|notify_fd| unsafe {
+            collect_paths(notify_fd, |path| {
+                let _ = tx.send(Ok(path.to_vec()));
             })
-        });
-
-        tx.send(message)
+        }) {
+            let _ = tx.send(Err(err));
+        }
     });
 
-    let mut status_fut = Box::pin(command.status());
-    let mut handle_notify = Box::pin(notify_loop_handle);
+    let mut status_fut = command.status();
+    let mut paths = HashSet::<Vec<u8>>::new();
+    while let Some(item) = rx.recv().await {
+        let path = item?;
+        paths.insert(path);
+    }
+    // loop {
+    //     let path_fut = pin!(rx.recv());
 
-    match select(status_fut, handle_notify).await {
-        futures_util::future::Either::Left((status_res, handle_notify)) => {
-            dbg!(status_res);
-            // handle_notify.await;
-        }
-        futures_util::future::Either::Right((handle_notify_res, status_res)) => {
-            let Err(handle_notify_err) = handle_notify_res;
-            dbg!(handle_notify_err);
-            status_res.await;
+    //     match select(&mut status_fut, path_fut).await {
+    //         Either::Left((status_res, _)) => {
+    //             dbg!(status_res);
+    //             break;
+    //             // handle_notify.await;
+    //         }
+    //         Either::Right((path_res, status_fut)) => match path_res {
+    //             None => {
+    //                 dbg!(status_fut.await);
+    //                 break;
+    //             }
+    //             Some(Err(err)) => return Err(err),
+    //             Some(Ok(path)) => {
+    //                 eprintln!("path: {:?}", from_utf8(&path).unwrap());
+    //                 paths.insert(path);
+    //             }
+    //         },
+    //     }
+    // }
+    for path in &paths {
+        if path.first().copied() != Some(b'/') {
+            println!("{}", from_utf8(path).unwrap());
         }
     }
+    dbg!(paths.len());
+    dbg!((status_fut.await));
     Ok(())
 }
