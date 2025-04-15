@@ -5,18 +5,13 @@ edition = "2021"
 
 [dependencies]
 cfg-if = "1.0.0"
-const-fnv1a-hash = "1.1.0"
-const_format = { version = "0.2.34", features = ["fmt"] }
 futures-util = "0.3.31"
 libc = "0.2.171"
+linux-raw-sys = { version = "0.9.4", features = ["ptrace"] }
 # async-send-fd = { version = "1.2.0", features = ["tokio"] }
 passfd = "0.1.6"
-rand = "0.9.0"
-tokio = { version = "1.44.2", features = ["net", "process", "io-util", "sync"]}
-
-[target.'cfg(target_os = "linux")'.dependencies]
-linux-raw-sys = { version = "0.9.4", features = ["ptrace"] }
 seccompiler = { git = "https://github.com/branchseer/seccompiler", branch = "seccomp-action-raw" }
+tokio = { version = "1.44.2", features = ["net", "process", "io-util", "sync"]}
 
 [dev-dependencies]
 tokio = { version = "*", features = ["rt", "macros"] }

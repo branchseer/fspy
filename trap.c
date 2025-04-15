@@ -59,21 +59,23 @@ void set_signal_handle(){
         return ;
     }
     printf("sigaction init success.\n");
+
+
 }
 
 void install_seccomp_filter(){
     struct sock_filter filter[] = {
-        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, nr))),
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_openat, 0, 2),
-        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[3])),
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SECMAGIC, 0, 1),
-        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
-        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP)
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, (offsetof(struct seccomp_data, nr))),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_openat, 0, 2),
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[3])),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SECMAGIC, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP)
     };
 
     struct sock_fprog prog = {
-        .len = (unsigned short) (sizeof(filter) / sizeof(filter[0])),
-        .filter = filter,
+            .len = (unsigned short) (sizeof(filter) / sizeof(filter[0])),
+            .filter = filter,
     };
 
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1) {
@@ -87,12 +89,8 @@ void install_seccomp_filter(){
 }
 
 int main() {
-    install_seccomp_filter();
-    // set_signal_handle();
-    // if (fork() == 0) {
+    set_signal_handle();
     int fd = openat(AT_FDCWD, "/etc/hosts", O_RDONLY);
     printf("fd: %d\n", fd);
-    // }
-    // execl("/usr/bin/cat", "/usr/bin/cat", "/etc/hosts", (const char*)0);
     return 0;
 }

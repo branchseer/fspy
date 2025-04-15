@@ -1,5 +1,0 @@
-[build]
-target-dir = "../target/preload_cdylib_target" 
-
-[env]
-MACOSX_DEPLOYMENT_TARGET = "10.12"
