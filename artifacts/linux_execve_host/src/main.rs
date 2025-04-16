@@ -22,29 +22,29 @@ fn init_sig_handle() -> io::Result<()> {
             return;
         }
         let ucontext = unsafe { data.cast::<libc::ucontext_t>().as_mut().unwrap_unchecked() };
-        let regs = &mut ucontext.uc_mcontext.regs;
         // aarch64
-        let sysno = regs[8] as u32;
-        match sysno {
-            linux_sys::__NR_openat => {
-                let fd = unsafe {
-                    libc::syscall(
-                        linux_sys::__NR_openat as _,
-                        regs[0],
-                        regs[1],
-                        regs[2],
-                        regs[3],
-                        SYSCALL_MAGIC,
-                    )
-                };
-                let path_ptr = regs[1] as *const c_char;
-                let path = unsafe { CStr::from_ptr(path_ptr) };
-                let bufs = IoSlice::new(&[]);
-                SPY_SOCKET_FD.get_ref().send_vectored(bufs);
-                regs[0] = fd as u64;
-            }
-            _ => {}
-        }
+        // let regs = &mut ucontext.uc_mcontext.regs;
+        // let sysno = regs[8] as u32;
+        // match sysno {
+        //     linux_sys::__NR_openat => {
+        //         let fd = unsafe {
+        //             libc::syscall(
+        //                 linux_sys::__NR_openat as _,
+        //                 regs[0],
+        //                 regs[1],
+        //                 regs[2],
+        //                 regs[3],
+        //                 SYSCALL_MAGIC,
+        //             )
+        //         };
+        //         let path_ptr = regs[1] as *const c_char;
+        //         let path = unsafe { CStr::from_ptr(path_ptr) };
+        //         let bufs = IoSlice::new(&[]);
+        //         // SPY_SOCKET_FD.get_ref().send_vectored(bufs);
+        //         regs[0] = fd as u64;
+        //     }
+        //     _ => {}
+        // }
     }
 
     let mut sa = unsafe { mem::zeroed::<libc::sigaction>() };
@@ -80,20 +80,21 @@ unsafe impl<T> Sync for UnsafeGlobalCell<T> {}
 static HOST_MEM_FD: UnsafeGlobalCell<libc::c_int> = UnsafeGlobalCell::uninit();
 static SPY_SOCKET_FD: UnsafeGlobalCell<Socket> = UnsafeGlobalCell::uninit();
 
-fn main() -> ! {
-    let mut args = argv::iter();
-    let _ = args.next().unwrap(); // argv0
+fn main()  {
+    println!("{}", std::fs::read_to_string("/proc/self/maps").unwrap());
+    // let mut args = argv::iter();
+    // let _ = args.next().unwrap(); // argv0
 
-    let host_mem_fd = parse::<c_int>(args.next().unwrap().as_bytes()).unwrap();
-    let spy_socket_fd = parse::<c_int>(args.next().unwrap().as_bytes()).unwrap();
+    // let host_mem_fd = parse::<c_int>(args.next().unwrap().as_bytes()).unwrap();
+    // let spy_socket_fd = parse::<c_int>(args.next().unwrap().as_bytes()).unwrap();
 
-    unsafe { HOST_MEM_FD.set(host_mem_fd) };
-    unsafe { SPY_SOCKET_FD.set(Socket::from_raw_fd(spy_socket_fd)) };
+    // unsafe { HOST_MEM_FD.set(host_mem_fd) };
+    // unsafe { SPY_SOCKET_FD.set(Socket::from_raw_fd(spy_socket_fd)) };
 
-    let program = args.next().unwrap();
-    init_sig_handle().unwrap();
+    // let program = args.next().unwrap();
+    // init_sig_handle().unwrap();
 
-    let args: &[&CStr] = &[];
-    let env: &[&CStr] = &[];
-    userland_execve::exec("/bin/bash".as_ref(), args, env)
+    // let args: &[&CStr] = &[];
+    // let env: &[&CStr] = &[];
+    // userland_execve::exec("/bin/bash".as_ref(), args, env)
 }
