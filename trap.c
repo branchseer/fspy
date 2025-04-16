@@ -88,10 +88,20 @@ void install_seccomp_filter(){
 
 int main() {
     install_seccomp_filter();
+
+    if (fork() == 0) {
+        char * argv[2];
+        argv[0] = "/workspaces/fspy/hello";
+        argv[1] = NULL;
+        char * envp[1];
+        envp[0] = NULL;
+        execve("/workspaces/fspy/hello", argv, envp);
+    } else {
+        int fd = openat(AT_FDCWD, "/etc/hosts", O_RDONLY);
+        printf("fd: %d\n", fd);
+    }
     // set_signal_handle();
     // if (fork() == 0) {
-    int fd = openat(AT_FDCWD, "/etc/hosts", O_RDONLY);
-    printf("fd: %d\n", fd);
     // }
     // execl("/usr/bin/cat", "/usr/bin/cat", "/etc/hosts", (const char*)0);
     return 0;
