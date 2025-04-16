@@ -1,0 +1,11 @@
+[package]
+name = "linux_execve_host"
+edition = { workspace = true }
+
+[dependencies]
+argv = "0.1.12"
+lexical-core = { version = "1.0.5", default-features = false, features = ["parse-integers" ]}
+libc = "0.2.172"
+linux-raw-sys = "0.9.4"
+socket2 = "0.5.9"
+userland-execve = "0.2.0"
