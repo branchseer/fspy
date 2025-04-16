@@ -16,3 +16,5 @@ panic = "abort"
 [profile.release]
 panic = "abort"
 strip = "symbols" # keep it lean as we need to exec it for every child process
+lto = true
+codegen-units = 1
