@@ -1,14 +1,31 @@
 mod consts;
 
+use core::slice;
 use std::{
-    cell::UnsafeCell, env::{args_os, current_exe}, ffi::{c_char, c_void, CStr}, fs::{File, OpenOptions}, io::{self, IoSlice, Write}, mem::{self, MaybeUninit}, os::{fd::{AsFd, AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::OpenOptionsExt as _}}, ptr::{null, null_mut}, thread::{sleep, spawn}, time::Duration
+    cell::UnsafeCell, env::{args_os, current_exe}, ffi::{c_char, c_void, CStr}, fs::{File, OpenOptions}, io::{self, Cursor, IoSlice, Write}, mem::{self, MaybeUninit}, os::{fd::{AsFd, AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::OpenOptionsExt as _}}, ptr::{null, null_mut}, thread::{sleep, spawn}, time::Duration
 };
 
 use lexical_core::parse;
 
-use consts::SYSCALL_MAGIC;
+use consts::{AccessKind, SYSCALL_MAGIC};
 use libc::{c_int, c_long};
 use socket2::Socket;
+
+const PATH_MAX: usize = libc::PATH_MAX as usize;
+
+unsafe fn get_fd_path_if_needed(fd: c_int, path: &CStr, out: &mut [u8; PATH_MAX]) -> io::Result<usize> {
+    if unsafe { *path.as_ptr() } == b'/' {
+        return Ok(0)
+    }
+    let mut proc_self_fd_path = [0u8; PATH_MAX];
+    core::write!(proc_self_fd_path.as_mut_slice(), "/proc/self/fd/{}\0", fd).unwrap();
+    let ret = unsafe  { libc::readlink(proc_self_fd_path.as_ptr(), out.as_mut_ptr(), out.len()) };
+    if let Ok(size) = usize::try_from(ret) {
+        Ok(size)
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
 
 fn init_sig_handle() -> io::Result<()> {
     use linux_raw_sys::general as linux_sys;
@@ -23,28 +40,30 @@ fn init_sig_handle() -> io::Result<()> {
         }
         let ucontext = unsafe { data.cast::<libc::ucontext_t>().as_mut().unwrap_unchecked() };
         // aarch64
-        // let regs = &mut ucontext.uc_mcontext.regs;
-        // let sysno = regs[8] as u32;
-        // match sysno {
-        //     linux_sys::__NR_openat => {
-        //         let fd = unsafe {
-        //             libc::syscall(
-        //                 linux_sys::__NR_openat as _,
-        //                 regs[0],
-        //                 regs[1],
-        //                 regs[2],
-        //                 regs[3],
-        //                 SYSCALL_MAGIC,
-        //             )
-        //         };
-        //         let path_ptr = regs[1] as *const c_char;
-        //         let path = unsafe { CStr::from_ptr(path_ptr) };
-        //         let bufs = IoSlice::new(&[]);
-        //         // SPY_SOCKET_FD.get_ref().send_vectored(bufs);
-        //         regs[0] = fd as u64;
-        //     }
-        //     _ => {}
-        // }
+        let regs = &mut ucontext.uc_mcontext.regs;
+        let sysno = regs[8] as u32;
+        match sysno {
+            linux_sys::__NR_openat => {
+                let path_ptr = regs[1] as *const c_char;
+                let path = unsafe { CStr::from_ptr(path_ptr) };
+                let bufs = IoSlice::new(&[]);
+                unsafe { SPY_SOCKET_FD.get() }.send_vectored(&[
+                    IoSlice::new( slice::from_ref(&(AccessKind::Open.into()))),
+                    IoSlice::new(buf)
+                ]).unwrap();
+                regs[0] = unsafe {
+                    libc::syscall(
+                        linux_sys::__NR_openat as _,
+                        regs[0],
+                        regs[1],
+                        regs[2],
+                        regs[3],
+                        SYSCALL_MAGIC,
+                    )
+                } as u64;
+            }
+            _ => {}
+        }
     }
 
     let mut sa = unsafe { mem::zeroed::<libc::sigaction>() };
@@ -68,10 +87,7 @@ impl<T> UnsafeGlobalCell<T> {
     pub unsafe fn set(&self, value: T) {
         unsafe { self.0.get().write(MaybeUninit::new(value)) }
     }
-    pub unsafe fn get(&self) -> T where T: Copy {
-        unsafe { self.0.get().read().assume_init() }
-    }
-    pub unsafe fn get_ref(&self) -> &T {
+    pub unsafe fn get(&self) -> &T {
         unsafe { self.0.get().as_ref().unwrap_unchecked().assume_init_ref() }
     }
 }
@@ -80,7 +96,7 @@ unsafe impl<T> Sync for UnsafeGlobalCell<T> {}
 static HOST_MEM_FD: UnsafeGlobalCell<libc::c_int> = UnsafeGlobalCell::uninit();
 static SPY_SOCKET_FD: UnsafeGlobalCell<Socket> = UnsafeGlobalCell::uninit();
 
-const D: &[u8] = include_bytes!("/home/vscode/dbgexe");
+// const D: &[u8] = include_bytes!("/home/vscode/dbgexe");
 
 fn main() -> io::Result<()>  {
     // let memfd = unsafe { libc::memfd_create(c"hello_memfd".as_ptr(), 0) };
