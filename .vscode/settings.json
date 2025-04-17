@@ -1,6 +1,6 @@
 {
     "rust-analyzer.linkedProjects": [
         "Cargo.toml",
-        "artifacts/Cargo.toml",
+        "artifacts/linux_execve_host/Cargo.toml",
     ]
 }

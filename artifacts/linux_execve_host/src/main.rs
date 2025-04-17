@@ -1,13 +1,13 @@
 mod consts;
 
 use std::{
-    cell::UnsafeCell, env::args_os, ffi::{c_char, c_void, CStr}, io::{self, IoSlice}, mem::{self, MaybeUninit}, os::{fd::FromRawFd, unix::ffi::OsStrExt}, ptr::{null, null_mut}, thread::{sleep, spawn}, time::Duration
+    cell::UnsafeCell, env::{args_os, current_exe}, ffi::{c_char, c_void, CStr}, fs::{File, OpenOptions}, io::{self, IoSlice, Write}, mem::{self, MaybeUninit}, os::{fd::{AsFd, AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::OpenOptionsExt as _}}, ptr::{null, null_mut}, thread::{sleep, spawn}, time::Duration
 };
 
 use lexical_core::parse;
 
 use consts::SYSCALL_MAGIC;
-use libc::{c_int};
+use libc::{c_int, c_long};
 use socket2::Socket;
 
 fn init_sig_handle() -> io::Result<()> {
@@ -80,8 +80,34 @@ unsafe impl<T> Sync for UnsafeGlobalCell<T> {}
 static HOST_MEM_FD: UnsafeGlobalCell<libc::c_int> = UnsafeGlobalCell::uninit();
 static SPY_SOCKET_FD: UnsafeGlobalCell<Socket> = UnsafeGlobalCell::uninit();
 
-fn main()  {
-    println!("{}", std::fs::read_to_string("/proc/self/maps").unwrap());
+const D: &[u8] = include_bytes!("/home/vscode/dbgexe");
+
+fn main() -> io::Result<()>  {
+    // let memfd = unsafe { libc::memfd_create(c"hello_memfd".as_ptr(), 0) };
+    // if memfd < 0 {
+    //     return Err(io::Error::last_os_error());
+    // }
+    // let mut memfd_file = unsafe { File::from_raw_fd(memfd) };
+    // memfd_file.write_all(D)?;
+    // let memfd = memfd_file.as_fd();
+    // let argv: &[*const c_char] = &[c"hello_memfd_argv0".as_ptr(), null()];
+    // let envp: &[*const c_char] = &[null()];
+    // let ret = unsafe { libc::fexecve(memfd.as_raw_fd(), argv.as_ptr(), envp.as_ptr()) };
+    // if ret < 0 {
+    //     return Err(io::Error::last_os_error());
+    // }
+    // Ok(())
+    // dbg!(current_exe());
+    // let file = OpenOptions::new().read(true).open("/bin/bash").unwrap();
+    // unsafe {
+    //     let ret = libc::prctl(libc::PR_SET_MM, libc::PR_SET_MM_EXE_FILE, file.as_raw_fd() as c_long, 0 as c_long, 0 as c_long);
+    //     if ret == -1 {
+    //         Err(io::Error::last_os_error())
+    //     } else {
+    //         Ok(())
+    //     }
+    // }.unwrap();
+    // dbg!(current_exe());
     // let mut args = argv::iter();
     // let _ = args.next().unwrap(); // argv0
 
@@ -92,9 +118,9 @@ fn main()  {
     // unsafe { SPY_SOCKET_FD.set(Socket::from_raw_fd(spy_socket_fd)) };
 
     // let program = args.next().unwrap();
-    // init_sig_handle().unwrap();
+    init_sig_handle().unwrap();
 
-    // let args: &[&CStr] = &[];
-    // let env: &[&CStr] = &[];
-    // userland_execve::exec("/bin/bash".as_ref(), args, env)
+    let args: &[&CStr] = &[c"/usr/bin/node"];
+    let env: &[&CStr] = &[];
+    userland_execve::exec("/usr/bin/node".as_ref(), args, env)
 }
