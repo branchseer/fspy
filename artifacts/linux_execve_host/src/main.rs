@@ -2,14 +2,13 @@ mod consts;
 
 use core::slice;
 use std::{
-    cell::UnsafeCell, env::{self, args_os, current_exe}, ffi::{c_char, c_void, CStr}, fs::{self, File, OpenOptions}, io::{self, Cursor, IoSlice, Write}, mem::{self, MaybeUninit}, os::{fd::{AsFd, AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::OpenOptionsExt as _}}, ptr::{null, null_mut}, thread::{sleep, spawn}, time::Duration
+    cell::UnsafeCell, env::{args_os, current_exe}, ffi::{c_char, c_void, CStr}, fs::{File, OpenOptions}, io::{self, Cursor, IoSlice, Write}, mem::{self, MaybeUninit}, os::{fd::{AsFd, AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::OpenOptionsExt as _}}, ptr::{null, null_mut}, thread::{sleep, spawn}, time::Duration
 };
 
 use lexical_core::parse;
 
 use consts::{AccessKind, SYSCALL_MAGIC};
 use libc::{c_int, c_long};
-use linux_execve_host::reflect_sys;
 use socket2::Socket;
 
 const PATH_MAX: usize = libc::PATH_MAX as usize;
@@ -99,15 +98,6 @@ static SPY_SOCKET_FD: UnsafeGlobalCell<Socket> = UnsafeGlobalCell::uninit();
 // const D: &[u8] = include_bytes!("/home/vscode/dbgexe");
 
 fn main() -> io::Result<()>  {
-
-    init_sig_handle().unwrap();
-
-    let binary = fs::read("/home/vscode/esbuild").unwrap();
-
-    let argv: &[*mut c_char] = &[c"/home/vscode/esbuild".as_ptr().cast_mut(), null_mut()];
-    let envp: &[*mut c_char] = &[null_mut()];
-    unsafe { reflect_sys::reflect_execve(binary.as_ptr().cast(), argv.as_ptr().cast_mut(), envp.as_ptr().cast_mut()) }
-    unreachable!()
     // let memfd = unsafe { libc::memfd_create(c"hello_memfd".as_ptr(), 0) };
     // if memfd < 0 {
     //     return Err(io::Error::last_os_error());
@@ -143,7 +133,9 @@ fn main() -> io::Result<()>  {
     // unsafe { SPY_SOCKET_FD.set(Socket::from_raw_fd(spy_socket_fd)) };
 
     // let program = args.next().unwrap();
-    // let args: &[&CStr] = &[c"/usr/bin/node"];
-    // let env: &[&CStr] = &[];
-    // userland_execve::exec("/usr/bin/node".as_ref(), args, env)
+    init_sig_handle().unwrap();
+
+    let args: &[&CStr] = &[c"/usr/bin/node"];
+    let env: &[&CStr] = &[];
+    userland_execve::exec("/usr/bin/node".as_ref(), args, env)
 }

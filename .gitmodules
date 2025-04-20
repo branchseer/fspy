@@ -1,3 +1,0 @@
-[submodule "artifacts/linux_execve_host/libreflect"]
-	path = artifacts/linux_execve_host/libreflect
-	url = https://github.com/sliverarmory/libreflect

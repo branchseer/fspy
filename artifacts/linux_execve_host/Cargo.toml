@@ -11,9 +11,6 @@ num_enum = "0.7.3"
 socket2 = "0.5.9"
 userland-execve = "0.2.0"
 
-[build-dependencies]
-cc = "1.2.19"
-
 [profile.dev]
 panic = "abort"
 

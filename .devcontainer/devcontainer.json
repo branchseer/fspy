@@ -3,10 +3,7 @@
 {
 	"name": "Rust",
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-	"build": {
-        // Path is relative to the devcontainer.json file.
-        "dockerfile": "Dockerfile"
-    },
+	"image": "mcr.microsoft.com/devcontainers/rust:1-1-bookworm",
 	"features": {
 		"ghcr.io/devcontainers-extra/features/mise:1": {}
 	},
@@ -18,7 +15,7 @@
 				"fill-labs.dependi"
 			]
 		}
-	},
+	}
 
 	// Use 'mounts' to make the cargo cache persistent in a Docker Volume.
 	// "mounts": [
@@ -36,7 +33,7 @@
 	// "forwardPorts": [],
 
 	// Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "mise trust && mise install"
+	// "postCreateCommand": "rustc --version",
 
 	// Configure tool-specific properties.
 	// "customizations": {},
