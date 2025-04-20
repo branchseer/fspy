@@ -8,6 +8,7 @@ cfg-if = "1.0.0"
 futures-util = "0.3.31"
 libc = "0.2.171"
 linux-raw-sys = { version = "0.9.4", features = ["ptrace"] }
+nix = { version = "0.29.0", features = ["fs"] }
 # async-send-fd = { version = "1.2.0", features = ["tokio"] }
 passfd = "0.1.6"
 seccompiler = { git = "https://github.com/branchseer/seccompiler", branch = "seccomp-action-raw" }
@@ -16,6 +17,6 @@ tokio = { version = "1.44.2", features = ["net", "process", "io-util", "sync"]}
 [dev-dependencies]
 tokio = { version = "*", features = ["rt", "macros"] }
 
-[profile.release]
-lto = true
-codegen-units = 1
+# [profile.release]
+# lto = true
+# codegen-units = 1

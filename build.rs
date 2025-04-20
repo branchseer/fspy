@@ -1,9 +1,15 @@
 use std::{
-    env::{self, current_dir},
-    fs,
-    path::Path,
-    process::Command,
+    env::{self, current_dir}, ffi::OsStr, fs, path::Path, process::Command
 };
+
+fn command_with_clean_env(program: impl AsRef<OsStr>) -> Command {
+    let mut command = Command::new(program);
+    command.env_clear().env("PATH", env::var_os("PATH").unwrap());
+    if let Some(rustup_home_env) = env::var_os("RUSTUP_HOME") {
+        command.env("RUSTUP_HOME", rustup_home_env);
+    }
+    command
+}
 
 fn main() {
     match env::var("CARGO_CFG_TARGET_OS").unwrap().as_str() {
@@ -26,7 +32,7 @@ fn main() {
                 _ => panic!("Unsuppported target arch: {}", target_arch),
             };
 
-            let exit_status = Command::new("rustup")
+            let exit_status = command_with_clean_env("rustup")
                 .current_dir(&execve_host_path)
                 .args(["target", "add", &execve_host_target])
                 .status()
@@ -35,16 +41,12 @@ fn main() {
 
             let out_dir = cwd.join(Path::new(&std::env::var_os("OUT_DIR").unwrap()));
             let execve_host_target_dir = out_dir.join("linux_execve_host_target");
-            let mut execve_host_build_command = Command::new("cargo");
+            let mut execve_host_build_command = command_with_clean_env("cargo");
             execve_host_build_command
-                .env_clear()
-                .env("PATH", env::var_os("PATH").unwrap())
                 .current_dir(&execve_host_path)
                 .env("CARGO_TARGET_DIR", &execve_host_target_dir)
                 .arg("build");
-            if let Some(rustup_home_env) = env::var_os("RUSTUP_HOME") {
-                execve_host_build_command.env("RUSTUP_HOME", rustup_home_env);
-            }
+
             let is_release = env::var("PROFILE").unwrap() == "release";
             if is_release {
                 execve_host_build_command.arg("--release");

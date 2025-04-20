@@ -1,4 +1,5 @@
 mod consts;
+mod exec;
 
 use core::slice;
 use std::{
@@ -135,7 +136,7 @@ fn main() -> io::Result<()>  {
     // let program = args.next().unwrap();
     init_sig_handle().unwrap();
 
-    let args: &[&CStr] = &[c"/usr/bin/node"];
+    let args: &[&CStr] = &[c"/usr/local/bin/mise"];
     let env: &[&CStr] = &[];
-    userland_execve::exec("/usr/bin/node".as_ref(), args, env)
+    userland_execve::exec("/usr/local/bin/mise".as_ref(), args, env)
 }
