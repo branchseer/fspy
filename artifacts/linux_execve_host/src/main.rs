@@ -46,10 +46,9 @@ fn init_sig_handle() -> io::Result<()> {
             linux_sys::__NR_openat => {
                 let path_ptr = regs[1] as *const c_char;
                 let path = unsafe { CStr::from_ptr(path_ptr) };
-                let bufs = IoSlice::new(&[]);
                 unsafe { SPY_SOCKET_FD.get() }.send_vectored(&[
                     IoSlice::new( slice::from_ref(&(AccessKind::Open.into()))),
-                    IoSlice::new(buf)
+                    IoSlice::new(path.to_bytes_with_nul()),
                 ]).unwrap();
                 regs[0] = unsafe {
                     libc::syscall(

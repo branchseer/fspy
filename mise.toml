@@ -1,0 +1,3 @@
+[tools]
+cargo-binstall = "1.12.3"
+"cargo:bindgen-cli" = "0.71.1"
