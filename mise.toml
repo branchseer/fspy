@@ -1,3 +1,7 @@
 [tools]
-cargo-binstall = "1.12.3"
-"cargo:bindgen-cli" = "0.71.1"
+# cargo-binstall = "1.12.3"
+"cargo:bindgen-cli" = { version = "0.71.1" }
+
+[tasks.bindgen]
+dir ="{{ config_root }}/artifacts/linux_execve_host"
+run = "bindgen --formatter=prettyplease libreflect/include/reflect.h -o src/reflect_sys.rs --allowlist-function reflect_.*"
