@@ -1,6 +1,6 @@
 [build]
 target-dir = "../../target/fspy_linux_execve_host_target" 
 
-[target.'cfg(all(target_env = "musl"))']
+[target.'cfg(target_env = "musl")']
 linker = "rust-lld"
 rustflags = ["-Ctarget-feature=+crt-static", "-Crelocation-model=pic", "-Clink-args=--no-dynamic-linker"]
