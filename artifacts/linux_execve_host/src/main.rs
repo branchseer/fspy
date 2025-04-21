@@ -1,14 +1,15 @@
 mod consts;
+mod params;
 mod exec;
 
 use core::slice;
 use std::{
-    cell::UnsafeCell, env::{args_os, current_exe}, ffi::{c_char, c_void, CStr}, fs::{File, OpenOptions}, io::{self, Cursor, IoSlice, Write}, mem::{self, MaybeUninit}, os::{fd::{AsFd, AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::OpenOptionsExt as _}}, ptr::{null, null_mut}, thread::{sleep, spawn}, time::Duration
+    cell::UnsafeCell, env::{self, args_os, current_exe}, ffi::{c_char, c_void, CStr, CString, OsStr}, fs::{File, OpenOptions}, io::{self, Cursor, IoSlice, Write}, mem::{self, MaybeUninit}, os::{fd::{AsFd, AsRawFd, FromRawFd, RawFd}, unix::{ffi::{OsStrExt, OsStringExt}, fs::OpenOptionsExt as _}}, path::Path, ptr::{null, null_mut}, thread::{sleep, spawn}, time::Duration
 };
 
 use lexical_core::parse;
 
-use consts::{AccessKind, SYSCALL_MAGIC};
+use consts::{ENVNAME_HOST_FD, ENVNAME_PROGRAM, ENVNAME_SOCK_FD, SYSCALL_MAGIC};
 use libc::{c_int, c_long};
 use socket2::Socket;
 
@@ -36,9 +37,13 @@ fn init_sig_handle() -> io::Result<()> {
         data: *mut libc::c_void,
     ) {
         let info = unsafe { info.as_ref().unwrap_unchecked() };
-        if info.si_code != libc::SYS_seccomp as i32 {
+        if info.si_signo != libc::SIGSYS {
             return;
         }
+        // TODO: check why info.si_code isn't SYS_seccomp as documented in seccomp(2)
+        // if info.si_code != libc::SYS_seccomp as i32 {
+        //     return;
+        // }
         let ucontext = unsafe { data.cast::<libc::ucontext_t>().as_mut().unwrap_unchecked() };
         // aarch64
         let regs = &mut ucontext.uc_mcontext.regs;
@@ -47,9 +52,10 @@ fn init_sig_handle() -> io::Result<()> {
             linux_sys::__NR_openat => {
                 let path_ptr = regs[1] as *const c_char;
                 let path = unsafe { CStr::from_ptr(path_ptr) };
-                unsafe { SPY_SOCKET_FD.get() }.send_vectored(&[
-                    IoSlice::new( slice::from_ref(&(AccessKind::Open.into()))),
-                    IoSlice::new(path.to_bytes_with_nul()),
+                // libc::write(1, path.as_ptr().cast(), path.to_bytes().len());
+                unsafe { IPC_SOCKET.get() }.send_vectored(&[
+                    // IoSlice::new( slice::from_ref(&(AccessKind::Open.into()))),
+                    IoSlice::new(path.to_bytes()),
                 ]).unwrap();
                 regs[0] = unsafe {
                     libc::syscall(
@@ -93,12 +99,12 @@ impl<T> UnsafeGlobalCell<T> {
 }
 unsafe impl<T> Sync for UnsafeGlobalCell<T> {}
 
-static HOST_MEM_FD: UnsafeGlobalCell<libc::c_int> = UnsafeGlobalCell::uninit();
-static SPY_SOCKET_FD: UnsafeGlobalCell<Socket> = UnsafeGlobalCell::uninit();
+static HOST_FD: UnsafeGlobalCell<RawFd> = UnsafeGlobalCell::uninit();
+static IPC_SOCKET: UnsafeGlobalCell<Socket> = UnsafeGlobalCell::uninit();
 
 // const D: &[u8] = include_bytes!("/home/vscode/dbgexe");
 
-fn main() -> io::Result<()>  {
+fn main() {
     // let memfd = unsafe { libc::memfd_create(c"hello_memfd".as_ptr(), 0) };
     // if memfd < 0 {
     //     return Err(io::Error::last_os_error());
@@ -134,9 +140,31 @@ fn main() -> io::Result<()>  {
     // unsafe { SPY_SOCKET_FD.set(Socket::from_raw_fd(spy_socket_fd)) };
 
     // let program = args.next().unwrap();
+
+    // Allocations could be avoided if we have https://github.com/rust-lang/libs-team/issues/348
+    let program = env::var_os(ENVNAME_PROGRAM).unwrap();
+    let host_fd = parse::<RawFd>(env::var_os(ENVNAME_HOST_FD).unwrap().as_bytes()).unwrap();
+    let socket_fd = parse::<RawFd>(env::var_os(ENVNAME_SOCK_FD).unwrap().as_bytes()).unwrap();
+    
+    unsafe {
+        HOST_FD.set(host_fd);
+        IPC_SOCKET.set(Socket::from_raw_fd(socket_fd));
+    }
+
     init_sig_handle().unwrap();
 
-    let args: &[&CStr] = &[c"/usr/local/bin/mise"];
-    let env: &[&CStr] = &[];
-    userland_execve::exec("/usr/local/bin/mise".as_ref(), args, env)
+    let args: Vec<CString> = args_os().map(|arg| CString::new(arg.into_vec()).unwrap()).collect();
+    let env: Vec<CString> = env::vars_os().filter_map(|(key, value)| {
+        if key == ENVNAME_PROGRAM || key == ENVNAME_HOST_FD || key == ENVNAME_HOST_FD {
+            return None;
+        };
+        let mut entry: Vec<u8> = Vec::with_capacity(key.len() + 1 + value.len() + 1);
+        entry.extend_from_slice(key.as_bytes());
+        entry.push(b'=');
+        entry.extend_from_slice(value.as_bytes());
+        entry.push(b'\0');
+        Some(CString::from_vec_with_nul(entry).unwrap())
+    }).collect();
+    dbg!(&program);
+    userland_execve::exec(Path::new(&program), &args, &env)
 }

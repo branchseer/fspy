@@ -63,6 +63,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
+name = "filedesc"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4960c866d9cf4c48f64f11ef0020c98900d0cb32e9b019c000ed838470daa1d"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "fspy"
 version = "0.1.0"
 dependencies = [
@@ -74,6 +83,7 @@ dependencies = [
  "passfd",
  "seccompiler",
  "tokio",
+ "tokio-seqpacket",
 ]
 
 [[package]]
@@ -138,6 +148,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 
 [[package]]
+name = "memoffset"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "miniz_oxide"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -167,6 +186,7 @@ dependencies = [
  "cfg-if",
  "cfg_aliases",
  "libc",
+ "memoffset",
 ]
 
 [[package]]
@@ -226,7 +246,8 @@ checksum = "719b953e2095829ee67db738b3bfa9fa368c94900df327b3f07fe6e794d2fe1f"
 [[package]]
 name = "seccompiler"
 version = "0.5.0"
-source = "git+https://github.com/branchseer/seccompiler?branch=seccomp-action-raw#dbccf624efc19685e8b85beb7b0a9fdda0678da2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4ae55de56877481d112a559bbc12667635fdaf5e005712fd4e2b2fa50ffc884"
 dependencies = [
  "libc",
 ]
@@ -296,6 +317,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "tokio-seqpacket"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6eb09d9a154bede1fafb3a9b13f4347de87e1ec07fa6fb42f52041800f18fe06"
+dependencies = [
+ "filedesc",
+ "libc",
+ "tokio",
 ]
 
 [[package]]
