@@ -5,30 +5,29 @@ use seccompiler::{
 use crate::consts::SYSCALL_MAGIC;
 
 pub fn bootstrap() {
+    let syscalls_with_magic_indexes: &[(i64, u8)] = &[(libc::SYS_openat, 4), (libc::SYS_execve, 3)];
     let filter = SeccompFilter::new(
-        [
-            (
-                libc::SYS_openat,
-                vec![
-                    SeccompRule::new(vec![
-                        SeccompCondition::new(
-                            4,
-                            seccompiler::SeccompCmpArgLen::Qword,
-                            seccompiler::SeccompCmpOp::Ne,
-                            SYSCALL_MAGIC,
-                        )
+        syscalls_with_magic_indexes
+            .iter()
+            .cloned()
+            .map(|(syscall, magic_index)| {
+                (
+                    syscall,
+                    vec![
+                        SeccompRule::new(vec![
+                            SeccompCondition::new(
+                                magic_index,
+                                seccompiler::SeccompCmpArgLen::Qword,
+                                seccompiler::SeccompCmpOp::Ne,
+                                SYSCALL_MAGIC,
+                            )
+                            .unwrap(),
+                        ])
                         .unwrap(),
-                    ])
-                    .unwrap(),
-                ],
-            ),
-            #[cfg(target_arch = "x86_64")]
-            (libc::SYS_mkdir, vec![]),
-            #[cfg(target_arch = "x86_64")]
-            (libc::SYS_open, vec![]),
-        ]
-        .into_iter()
-        .collect(),
+                    ],
+                )
+            })
+            .collect(),
         SeccompAction::Allow,
         SeccompAction::Trap,
         std::env::consts::ARCH.try_into().unwrap(),
