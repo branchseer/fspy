@@ -81,7 +81,6 @@ dependencies = [
  "linux-raw-sys",
  "nix",
  "passfd",
- "seccompiler",
  "tokio",
  "tokio-seqpacket",
 ]
@@ -242,15 +241,6 @@ name = "rustc-demangle"
 version = "0.1.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "719b953e2095829ee67db738b3bfa9fa368c94900df327b3f07fe6e794d2fe1f"
-
-[[package]]
-name = "seccompiler"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4ae55de56877481d112a559bbc12667635fdaf5e005712fd4e2b2fa50ffc884"
-dependencies = [
- "libc",
-]
 
 [[package]]
 name = "signal-hook-registry"

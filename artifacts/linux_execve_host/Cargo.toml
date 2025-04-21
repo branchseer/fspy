@@ -8,6 +8,7 @@ lexical-core = { version = "1.0.5", default-features = false, features = ["parse
 libc = "0.2.172"
 linux-raw-sys = "0.9.4"
 num_enum = "0.7.3"
+seccompiler = "0.5.0"
 socket2 = "0.5.9"
 userland-execve = "0.2.0"
 

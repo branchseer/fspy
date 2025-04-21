@@ -14,7 +14,6 @@ tokio = { version = "1.44.2", features = ["net", "process", "io-util", "sync"]}
 
 [target.'cfg(target_os= "linux")'.dependencies]
 tokio-seqpacket = "0.8.0"
-seccompiler = "0.5.0"
 nix = { version = "0.29.0", features = ["fs", "process", "socket"] }
 
 [dev-dependencies]

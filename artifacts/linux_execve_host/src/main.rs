@@ -1,6 +1,7 @@
 mod consts;
 mod params;
 mod exec;
+mod bootstrap;
 
 use core::slice;
 use std::{
@@ -9,7 +10,7 @@ use std::{
 
 use lexical_core::parse;
 
-use consts::{ENVNAME_HOST_FD, ENVNAME_PROGRAM, ENVNAME_SOCK_FD, SYSCALL_MAGIC};
+use consts::{ENVNAME_BOOTSTRAP, ENVNAME_HOST_FD, ENVNAME_PROGRAM, ENVNAME_SOCK_FD, SYSCALL_MAGIC};
 use libc::{c_int, c_long};
 use socket2::Socket;
 
@@ -142,6 +143,9 @@ fn main() {
     // let program = args.next().unwrap();
 
     // Allocations could be avoided if we have https://github.com/rust-lang/libs-team/issues/348
+    if env::var_os(ENVNAME_BOOTSTRAP).is_some() {
+        bootstrap::bootstrap();
+    }
     let program = env::var_os(ENVNAME_PROGRAM).unwrap();
     let host_fd = parse::<RawFd>(env::var_os(ENVNAME_HOST_FD).unwrap().as_bytes()).unwrap();
     let socket_fd = parse::<RawFd>(env::var_os(ENVNAME_SOCK_FD).unwrap().as_bytes()).unwrap();
@@ -165,6 +169,6 @@ fn main() {
         entry.push(b'\0');
         Some(CString::from_vec_with_nul(entry).unwrap())
     }).collect();
-    dbg!(&program);
+
     userland_execve::exec(Path::new(&program), &args, &env)
 }

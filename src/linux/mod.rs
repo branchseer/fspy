@@ -19,7 +19,7 @@ use std::{
 };
 
 use crate::FileSystemAccess;
-use consts::{ENVNAME_HOST_FD, ENVNAME_PROGRAM, ENVNAME_SOCK_FD, SYSCALL_MAGIC};
+use consts::{ENVNAME_HOST_FD, ENVNAME_PROGRAM, ENVNAME_SOCK_FD, ENVNAME_BOOTSTRAP};
 
 use futures_util::{stream::poll_fn, Stream, TryStream, TryStreamExt};
 use nix::{
@@ -29,9 +29,6 @@ use nix::{
         prctl::set_no_new_privs,
         socket::{getsockopt, sockopt::SndBuf},
     },
-};
-use seccompiler::{
-    apply_filter, BpfProgram, SeccompAction, SeccompCondition, SeccompFilter, SeccompRule,
 };
 use tokio::process::Command;
 use tokio_seqpacket::UnixSeqpacket;
@@ -101,40 +98,12 @@ impl Spy {
         command.env(ENVNAME_PROGRAM, program);
         command.env(ENVNAME_HOST_FD, execve_host_rawfd.to_string());
         command.env(ENVNAME_SOCK_FD, sender.as_raw_fd().to_string());
-
-        let x = SeccompRule::new(vec![]);
-
-        let filter = SeccompFilter::new(
-            [
-                (
-                    libc::SYS_openat,
-                    vec![SeccompRule::new(vec![SeccompCondition::new(
-                        4,
-                        seccompiler::SeccompCmpArgLen::Qword,
-                        seccompiler::SeccompCmpOp::Ne,
-                        SYSCALL_MAGIC,
-                    )
-                    .unwrap()])
-                    .unwrap()],
-                ),
-                #[cfg(target_arch = "x86_64")]
-                (libc::SYS_mkdir, vec![]),
-                #[cfg(target_arch = "x86_64")]
-                (libc::SYS_open, vec![]),
-            ]
-            .into_iter()
-            .collect(),
-            SeccompAction::Allow,
-            SeccompAction::Trap,
-            std::env::consts::ARCH.try_into().unwrap(),
-        )
-        .unwrap();
+        command.env(ENVNAME_BOOTSTRAP, "1");
 
         unsafe {
             command.pre_exec({
                 let execve_host_memfd = Arc::clone(&self.execve_host_memfd);
                 let sender = sender;
-                let filter = BpfProgram::try_from(filter).unwrap();
 
                 move || {
                     // unset FD_CLOEXEC
@@ -146,11 +115,6 @@ impl Spy {
 
                     // setup seccomp
                     set_no_new_privs()?;
-                    apply_filter(&filter).map_err(|err| match err {
-                        seccompiler::Error::Prctl(io_error)
-                        | seccompiler::Error::Seccomp(io_error) => io_error,
-                        other => Err(other).unwrap(),
-                    })?;
                     Ok(())
                 }
             });
@@ -198,6 +162,5 @@ async fn hello() -> io::Result<()> {
     while let Some(access) = stream.try_next().await? {
         dbg!(access.path);
     }
-    // dbg!(buf_size);
     Ok(())
 }
