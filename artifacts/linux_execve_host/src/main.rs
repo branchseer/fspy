@@ -3,6 +3,7 @@ mod consts;
 mod env;
 mod exec;
 mod params;
+mod signal;
 
 use core::slice;
 use std::{
@@ -34,7 +35,6 @@ use consts::{
     ENVNAME_RESERVED_PREFIX, SYSCALL_MAGIC,
 };
 use libc::{c_int, c_long};
-use null_terminated::Nul;
 use socket2::Socket;
 
 const PATH_MAX: usize = libc::PATH_MAX as usize;
@@ -47,111 +47,24 @@ fn stderr_println(data: impl AsRef<[u8]>) {
     stderr_print(b"\n");
 }
 
-unsafe fn get_fd_path_if_needed(
-    fd: c_int,
-    path: &CStr,
-    out: &mut [u8; PATH_MAX],
-) -> io::Result<usize> {
-    if unsafe { *path.as_ptr() } == b'/' {
-        return Ok(0);
-    }
-    let mut proc_self_fd_path = [0u8; PATH_MAX];
-    core::write!(proc_self_fd_path.as_mut_slice(), "/proc/self/fd/{}\0", fd).unwrap();
-    let ret = unsafe { libc::readlink(proc_self_fd_path.as_ptr(), out.as_mut_ptr(), out.len()) };
-    if let Ok(size) = usize::try_from(ret) {
-        Ok(size)
-    } else {
-        Err(io::Error::last_os_error())
-    }
-}
+// unsafe fn get_fd_path_if_needed(
+//     fd: c_int,
+//     path: &CStr,
+//     out: &mut [u8; PATH_MAX],
+// ) -> io::Result<usize> {
+//     if unsafe { *path.as_ptr() } == b'/' {
+//         return Ok(0);
+//     }
+//     let mut proc_self_fd_path = [0u8; PATH_MAX];
+//     core::write!(proc_self_fd_path.as_mut_slice(), "/proc/self/fd/{}\0", fd).unwrap();
+//     let ret = unsafe { libc::readlink(proc_self_fd_path.as_ptr(), out.as_mut_ptr(), out.len()) };
+//     if let Ok(size) = usize::try_from(ret) {
+//         Ok(size)
+//     } else {
+//         Err(io::Error::last_os_error())
+//     }
+// }
 
-fn init_sig_handle() -> io::Result<()> {
-    use linux_raw_sys::general as linux_sys;
-    unsafe extern "C" fn handle_sigsys(
-        _signo: libc::c_int,
-        info: *mut libc::siginfo_t,
-        data: *mut libc::c_void,
-    ) {
-        stderr_print("enter handler...");
-        let info = unsafe { info.as_ref().unwrap_unchecked() };
-        if info.si_signo != libc::SIGSYS {
-            return;
-        }
-
-        stderr_println("go");
-        // TODO: check why info.si_code isn't SYS_seccomp as documented in seccomp(2)
-        // if info.si_code != libc::SYS_seccomp as i32 {
-        //     return;
-        // }
-        let ucontext = unsafe { data.cast::<libc::ucontext_t>().as_mut().unwrap_unchecked() };
-        // aarch64
-        let regs = &mut ucontext.uc_mcontext.regs;
-        let sysno = regs[8] as u32;
-        let global_state = unsafe { GLOBAL_STATE.get() };
-        match sysno {
-            linux_sys::__NR_openat => {
-                let path_ptr = regs[1] as *const c_char;
-                let path = unsafe { CStr::from_ptr(path_ptr) }.to_bytes();
-
-                stderr_print("path: ");
-                stderr_println(path);
-                global_state
-                    .ipc_socket
-                    .send_vectored(&[
-                        // IoSlice::new( slice::from_ref(&(AccessKind::Open.into()))),
-                        IoSlice::new(path),
-                    ])
-                    .unwrap();
-                regs[0] = unsafe {
-                    libc::syscall(
-                        linux_sys::__NR_openat as _,
-                        regs[0],
-                        regs[1],
-                        regs[2],
-                        regs[3],
-                        SYSCALL_MAGIC,
-                    )
-                } as _;
-            }
-            linux_sys::__NR_execve => {
-                let program = regs[0] as *const c_char;
-                let argv = regs[1] as *const *const c_char;
-                let envp = regs[2] as *const *const c_char;
-
-                let mut program_env_buf =
-                    ArrayVec::<u8, { ENVNAME_PROGRAM.len() + 1 + PATH_MAX + 1 }>::new();
-                let mut envp_buf = ArrayVec::<*const c_char, 1024>::new();
-
-                unsafe {
-                    global_state.prepare_envp(program, envp, &mut program_env_buf, &mut envp_buf)
-                };
-
-                regs[0] = unsafe {
-                    libc::syscall(
-                        linux_sys::__NR_execve as _,
-                        global_state.host_path_env.value().as_ptr(),
-                        argv,
-                        envp_buf.as_ptr(),
-                        SYSCALL_MAGIC,
-                    )
-                } as _;
-            }
-            _ => {}
-        }
-    }
-
-    let mut sa = unsafe { mem::zeroed::<libc::sigaction>() };
-    unsafe {
-        libc::sigfillset(&mut sa.sa_mask);
-    }
-    sa.sa_sigaction = handle_sigsys as *const c_void as usize;
-    sa.sa_flags = libc::SA_SIGINFO;
-
-    if unsafe { libc::sigaction(libc::SIGSYS, &sa, null_mut()) } == -1 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
-}
 
 struct UnsafeGlobalCell<T>(UnsafeCell<MaybeUninit<T>>);
 impl<T> UnsafeGlobalCell<T> {
@@ -209,18 +122,10 @@ impl GlobalState {
         for env in unsafe { iter_envp(envp) } {
             if is_env_reserved(env) {
                 let env_data = env.to_fat().as_slice();
-                const PREFIX: &[u8] =
-                    b"fspy: child process should not spawn with reserved env name (";
-                const SUFFIX: &[u8] = b")\n";
-                unsafe {
-                    libc::write(libc::STDERR_FILENO, PREFIX.as_ptr().cast(), PREFIX.len());
-                    libc::write(
-                        libc::STDERR_FILENO,
-                        env_data.as_ptr().cast(),
-                        env_data.len(),
-                    );
-                    libc::write(libc::STDERR_FILENO, SUFFIX.as_ptr().cast(), SUFFIX.len());
-                };
+
+                stderr_print(b"fspy: child process should not spawn with reserved env name (");
+                stderr_print(env_data);
+                stderr_print(b")\n");
                 unsafe { libc::abort() };
             }
             envp_buf.push(env.as_ptr());
@@ -253,7 +158,7 @@ fn main() {
         bootstrap::bootstrap().unwrap();
     }
 
-    init_sig_handle().unwrap();
+    signal::install_siganl_handler().unwrap();
 
     let args: Vec<CString> = args_os()
         .map(|arg| CString::new(arg.into_vec()).unwrap())
@@ -272,9 +177,5 @@ fn main() {
     stderr_print("program: ");
     stderr_println(program.as_os_str().as_bytes());
     dbg!(unsafe { libc::open(c"/".as_ptr(), 0) });
-    // stderr_print("host_path_env: ");
-    // stderr_println(host_path_env.data().as_slice());
-    // stderr_print("ipc_fd_env: ");
-    // stderr_println(ipc_fd_env.data().as_slice());
     userland_execve::exec(program, &args, &envs)
 }

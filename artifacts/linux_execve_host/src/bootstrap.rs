@@ -5,7 +5,10 @@ use seccompiler::{
 use crate::consts::SYSCALL_MAGIC;
 
 pub fn bootstrap() -> seccompiler::Result<()> {
-    let syscalls_with_magic_indexes: &[(i64, u8)] = &[(libc::SYS_openat, 4), (libc::SYS_execve, 3)];
+    let syscalls_with_magic_indexes: &[(i64, u8)] = &[
+        (libc::SYS_openat, 4),
+        (libc::SYS_execve, 3),
+    ];
     let filter = SeccompFilter::new(
         syscalls_with_magic_indexes
             .iter()
