@@ -9,6 +9,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e454c7dec505af23625a10d674d9a42553fb61b06adb58cf2363125bfdaf1142"
 
 [[package]]
+name = "arrayvec"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
+
+[[package]]
 name = "bitflags"
 version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -88,6 +94,7 @@ name = "linux_execve_host"
 version = "0.0.0"
 dependencies = [
  "argv",
+ "arrayvec",
  "lexical-core",
  "libc",
  "linux-raw-sys",

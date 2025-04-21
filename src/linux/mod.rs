@@ -19,7 +19,7 @@ use std::{
 };
 
 use crate::FileSystemAccess;
-use consts::{ENVNAME_HOST_FD, ENVNAME_PROGRAM, ENVNAME_SOCK_FD, ENVNAME_BOOTSTRAP};
+use consts::{ENVNAME_BOOTSTRAP, ENVNAME_EXECVE_HOST_PATH, ENVNAME_IPC_FD, ENVNAME_PROGRAM};
 
 use futures_util::{stream::poll_fn, Stream, TryStream, TryStreamExt};
 use nix::{
@@ -85,7 +85,8 @@ impl Spy {
         impl TryStream<Item = io::Result<FileSystemAccess>, Ok = FileSystemAccess, Error = io::Error>,
     )> {
         let execve_host_rawfd = self.execve_host_memfd.as_raw_fd();
-        let mut command = Command::new(format!("/proc/self/fd/{}", execve_host_rawfd));
+        let execve_host_path = format!("/proc/self/fd/{}", execve_host_rawfd);
+        let mut command = Command::new(&execve_host_path);
         let program = program.as_ref();
         command.arg0(program);
 
@@ -96,8 +97,8 @@ impl Spy {
         let ipc_buf_size = getsockopt(&sender, SndBuf)?;
 
         command.env(ENVNAME_PROGRAM, program);
-        command.env(ENVNAME_HOST_FD, execve_host_rawfd.to_string());
-        command.env(ENVNAME_SOCK_FD, sender.as_raw_fd().to_string());
+        command.env(ENVNAME_EXECVE_HOST_PATH, execve_host_path);
+        command.env(ENVNAME_IPC_FD, sender.as_raw_fd().to_string());
         command.env(ENVNAME_BOOTSTRAP, "1");
 
         unsafe {
@@ -156,7 +157,11 @@ impl Spy {
 #[tokio::test]
 async fn hello() -> io::Result<()> {
     let spy = Spy::init()?;
-    let (mut cmd, mut stream) = spy.new_command("/usr/local/bin/mise", |_| Ok(()))?;
+    let (mut cmd, mut stream) = spy.new_command("/bin/bash", |cmd| {
+        cmd.args(["-c", "ls / && mise"]);
+
+        Ok(())
+    })?;
     dbg!(cmd.status().await?.code());
     drop(cmd);
     while let Some(access) = stream.try_next().await? {

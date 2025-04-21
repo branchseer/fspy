@@ -1,16 +1,17 @@
 mod bootstrap;
 mod consts;
+mod env;
 mod exec;
 mod params;
 
 use core::slice;
 use std::{
     cell::UnsafeCell,
-    env::{self, args_os, current_exe},
+    env::{args_os, current_exe},
     ffi::{CStr, CString, OsStr, c_char, c_void},
     fs::{File, OpenOptions},
     io::{self, Cursor, IoSlice, Write},
-    mem::{self, MaybeUninit},
+    mem::{self, ManuallyDrop, MaybeUninit},
     os::{
         fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd},
         unix::{
@@ -24,17 +25,27 @@ use std::{
     time::Duration,
 };
 
+use arrayvec::ArrayVec;
+use env::{Env, Terminated, ThinCStr, find_env, iter_environ, iter_envp};
 use lexical_core::parse;
 
 use consts::{
-    ENVNAME_BOOTSTRAP, ENVNAME_HOST_FD, ENVNAME_PREFIX, ENVNAME_PROGRAM, ENVNAME_SOCK_FD,
-    SYSCALL_MAGIC,
+    ENVNAME_BOOTSTRAP, ENVNAME_EXECVE_HOST_PATH, ENVNAME_IPC_FD, ENVNAME_PROGRAM,
+    ENVNAME_RESERVED_PREFIX, SYSCALL_MAGIC,
 };
 use libc::{c_int, c_long};
 use null_terminated::Nul;
 use socket2::Socket;
 
 const PATH_MAX: usize = libc::PATH_MAX as usize;
+
+fn stderr_print(data: impl AsRef<[u8]>) {
+    ManuallyDrop::new(unsafe { File::from_raw_fd(libc::STDERR_FILENO) }).write_all(data.as_ref());
+}
+fn stderr_println(data: impl AsRef<[u8]>) {
+    stderr_print(data);
+    stderr_print(b"\n");
+}
 
 unsafe fn get_fd_path_if_needed(
     fd: c_int,
@@ -61,10 +72,13 @@ fn init_sig_handle() -> io::Result<()> {
         info: *mut libc::siginfo_t,
         data: *mut libc::c_void,
     ) {
+        stderr_print("enter handler...");
         let info = unsafe { info.as_ref().unwrap_unchecked() };
         if info.si_signo != libc::SIGSYS {
             return;
         }
+
+        stderr_println("go");
         // TODO: check why info.si_code isn't SYS_seccomp as documented in seccomp(2)
         // if info.si_code != libc::SYS_seccomp as i32 {
         //     return;
@@ -73,15 +87,19 @@ fn init_sig_handle() -> io::Result<()> {
         // aarch64
         let regs = &mut ucontext.uc_mcontext.regs;
         let sysno = regs[8] as u32;
+        let global_state = unsafe { GLOBAL_STATE.get() };
         match sysno {
             linux_sys::__NR_openat => {
                 let path_ptr = regs[1] as *const c_char;
-                let path = unsafe { CStr::from_ptr(path_ptr) };
-                // libc::write(1, path.as_ptr().cast(), path.to_bytes().len());
-                unsafe { &GLOBAL_STATE.get().ipc_socket.fd }
+                let path = unsafe { CStr::from_ptr(path_ptr) }.to_bytes();
+
+                stderr_print("path: ");
+                stderr_println(path);
+                global_state
+                    .ipc_socket
                     .send_vectored(&[
                         // IoSlice::new( slice::from_ref(&(AccessKind::Open.into()))),
-                        IoSlice::new(path.to_bytes()),
+                        IoSlice::new(path),
                     ])
                     .unwrap();
                 regs[0] = unsafe {
@@ -93,12 +111,30 @@ fn init_sig_handle() -> io::Result<()> {
                         regs[3],
                         SYSCALL_MAGIC,
                     )
-                } as u64;
+                } as _;
             }
             linux_sys::__NR_execve => {
                 let program = regs[0] as *const c_char;
+                let argv = regs[1] as *const *const c_char;
+                let envp = regs[2] as *const *const c_char;
 
-                // libc::fexecve(fd, argv, envp);
+                let mut program_env_buf =
+                    ArrayVec::<u8, { ENVNAME_PROGRAM.len() + 1 + PATH_MAX + 1 }>::new();
+                let mut envp_buf = ArrayVec::<*const c_char, 1024>::new();
+
+                unsafe {
+                    global_state.prepare_envp(program, envp, &mut program_env_buf, &mut envp_buf)
+                };
+
+                regs[0] = unsafe {
+                    libc::syscall(
+                        linux_sys::__NR_execve as _,
+                        global_state.host_path_env.value().as_ptr(),
+                        argv,
+                        envp_buf.as_ptr(),
+                        SYSCALL_MAGIC,
+                    )
+                } as _;
             }
             _ => {}
         }
@@ -131,79 +167,90 @@ impl<T> UnsafeGlobalCell<T> {
 }
 unsafe impl<T> Sync for UnsafeGlobalCell<T> {}
 
-struct FdWithStr<FD> {
-    fd: FD,
-    env: &'static CStr,
-}
-
-impl<FD> FdWithStr<FD> {
-    fn try_from_env(prefix: &[u8], env: &'static CStr) -> Option<Self>
-    where
-        FD: From<OwnedFd>,
-    {
-        let fd_str = env.to_bytes().strip_prefix(prefix)?;
-        let fd = parse::<RawFd>(fd_str).unwrap();
-
-        Some(Self {
-            fd: unsafe { OwnedFd::from_raw_fd(fd) }.into(),
-            env,
-        })
-    }
-}
-
-pub fn environ() -> impl Iterator<Item = &'static CStr> {
-    unsafe extern "C" {
-        static mut environ: *const *const c_char;
-    }
-    unsafe { envp_to_iter(environ) }
-}
-
-unsafe fn envp_to_iter<'a>(envp: *const *const c_char) -> impl Iterator<Item = &'a CStr> {
-    let envs = unsafe { Nul::new_unchecked(envp) };
-    envs.iter()
-        .copied()
-        .map(|item| unsafe { CStr::from_ptr(item) })
-}
-
 struct GlobalState {
-    host_executable: FdWithStr<OwnedFd>,
-    ipc_socket: FdWithStr<Socket>,
+    host_path_env: Env<'static>,
+    ipc_socket: Socket,
+    ipc_fd_env: Env<'static>,
 }
+
+fn is_env_reserved(env: ThinCStr<'_>) -> bool {
+    let mut iter = env.iter().copied();
+    for ch in ENVNAME_RESERVED_PREFIX.as_bytes() {
+        if iter.next() != Some(*ch) {
+            return false;
+        }
+    }
+    true
+}
+
 impl GlobalState {
-    pub fn prepare_envs<const N: usize>(
+    unsafe fn prepare_envp<const N: usize, const M: usize>(
+        &self,
+        program: *const c_char,
         envp: *const *const c_char,
-        envp_buf: &mut [*const *const c_char; N],
+        program_env_buf: &mut ArrayVec<u8, N>,
+        envp_buf: &mut ArrayVec<*const c_char, M>,
     ) {
-        // let envs = unsafe { envp_to_iter(envp) }
-        //     .filter(|item| !item.to_bytes().starts_with(ENVNAME_PREFIX.as_bytes()))
-        //     .chain();
+        let program = unsafe { Terminated::new_unchecked(program) }.to_fat();
+        program_env_buf.clear();
+        program_env_buf
+            .try_extend_from_slice(ENVNAME_PROGRAM.as_bytes())
+            .unwrap();
+        program_env_buf.push(b'=');
+        program_env_buf
+            .try_extend_from_slice(program.as_slice_with_term())
+            .unwrap();
+
+        envp_buf.clear();
+        envp_buf.push(program_env_buf.as_ptr());
+        envp_buf.push(self.host_path_env.data().as_ptr());
+        envp_buf.push(self.ipc_fd_env.data().as_ptr());
+
+        for env in unsafe { iter_envp(envp) } {
+            if is_env_reserved(env) {
+                let env_data = env.to_fat().as_slice();
+                const PREFIX: &[u8] =
+                    b"fspy: child process should not spawn with reserved env name (";
+                const SUFFIX: &[u8] = b")\n";
+                unsafe {
+                    libc::write(libc::STDERR_FILENO, PREFIX.as_ptr().cast(), PREFIX.len());
+                    libc::write(
+                        libc::STDERR_FILENO,
+                        env_data.as_ptr().cast(),
+                        env_data.len(),
+                    );
+                    libc::write(libc::STDERR_FILENO, SUFFIX.as_ptr().cast(), SUFFIX.len());
+                };
+                unsafe { libc::abort() };
+            }
+            envp_buf.push(env.as_ptr());
+        }
+        envp_buf.push(null());
     }
 }
 
 static GLOBAL_STATE: UnsafeGlobalCell<GlobalState> = UnsafeGlobalCell::uninit();
 
 fn main() {
-    // Allocations could be avoided if we have https://github.com/rust-lang/libs-team/issues/348
-    if env::var_os(ENVNAME_BOOTSTRAP).is_some() {
-        bootstrap::bootstrap();
-    }
+    let is_boostrap = unsafe { find_env(ENVNAME_BOOTSTRAP) }.is_some();
+    let program_env = unsafe { find_env(ENVNAME_PROGRAM) }.unwrap();
+    let host_path_env = unsafe { find_env(ENVNAME_EXECVE_HOST_PATH) }.unwrap();
+    let ipc_fd_env = unsafe { find_env(ENVNAME_IPC_FD) }.unwrap();
 
-    let mut program: Option<&[u8]> = None;
-    let mut host_executable: Option<FdWithStr<OwnedFd>> = None;
-    let mut ipc_socket: Option<FdWithStr<Socket>> = None;
-    for env in environ() {
-        if let Some(program) = env.to_bytes().strip_prefix(concat!(ENVNAME_PROGRAM,  "=")) {
-
-        }
-    }
-    let program = env::var_os(ENVNAME_PROGRAM).unwrap();
+    let program = Path::new(OsStr::from_bytes(program_env.value().as_slice()));
+    let ipc_fd = parse::<RawFd>(ipc_fd_env.value().as_slice()).unwrap();
     let global_state = GlobalState {
-        host_executable: FdWithStr::try_from_env(&env::var_os(ENVNAME_HOST_FD).unwrap()),
-        ipc_socket: FdWithStr::try_from_env(&env::var_os(ENVNAME_SOCK_FD).unwrap()),
+        host_path_env,
+        ipc_socket: unsafe { Socket::from_raw_fd(ipc_fd) },
+        ipc_fd_env,
     };
 
     unsafe {
         GLOBAL_STATE.set(global_state);
+    }
+
+    if is_boostrap {
+        bootstrap::bootstrap().unwrap();
     }
 
     init_sig_handle().unwrap();
@@ -211,13 +258,23 @@ fn main() {
     let args: Vec<CString> = args_os()
         .map(|arg| CString::new(arg.into_vec()).unwrap())
         .collect();
-    let env: Vec<&'static CStr> = environ()
-        .filter_map(|item| {
-            if item.to_bytes().starts_with(ENVNAME_PREFIX.as_bytes()) {
-                return None;
+    let envs: Vec<&CStr> = unsafe { iter_environ() }
+        .flat_map(|data| {
+            if is_env_reserved(data) {
+                None
+            } else {
+                Some(data.as_c_str())
             }
-            Some(item)
         })
         .collect();
-    userland_execve::exec(Path::new(&program), &args, &env)
+
+    println!("pid: {}", unsafe { libc::getpid() });
+    stderr_print("program: ");
+    stderr_println(program.as_os_str().as_bytes());
+    dbg!(unsafe { libc::open(c"/".as_ptr(), 0) });
+    // stderr_print("host_path_env: ");
+    // stderr_println(host_path_env.data().as_slice());
+    // stderr_print("ipc_fd_env: ");
+    // stderr_println(ipc_fd_env.data().as_slice());
+    userland_execve::exec(program, &args, &envs)
 }

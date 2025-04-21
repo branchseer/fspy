@@ -4,6 +4,7 @@ edition = "2024"
 
 [dependencies]
 argv = "0.1.12"
+arrayvec = "0.7.6"
 lexical-core = { version = "1.0.5", default-features = false, features = ["parse-integers" ]}
 libc = "0.2.172"
 linux-raw-sys = "0.9.4"
