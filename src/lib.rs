@@ -1,8 +1,14 @@
 use std::path::PathBuf;
 
-mod linux;
+#[cfg(target_os = "linux")]
+#[path ="./linux/mod.rs"]
+
+mod os_impl;
+
 mod command_builder;
 
 pub struct FileSystemAccess {
-    path: PathBuf
+    pub path: PathBuf
 }
+
+pub use os_impl::Spy;

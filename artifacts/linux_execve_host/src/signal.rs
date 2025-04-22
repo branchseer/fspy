@@ -7,12 +7,11 @@ use crate::PATH_MAX;
 use arrayvec::ArrayVec;
 use libc::c_char;
 use linux_raw_sys::general as linux_sys;
-use nix::sys::signal::{pthread_sigmask, sigaction, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow, Signal};
+use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, sigaction};
 
 use crate::{
     GLOBAL_STATE,
     consts::{ENVNAME_PROGRAM, SYSCALL_MAGIC},
-    stderr_print, stderr_println,
 };
 
 extern "C" fn handle_sigsys(
@@ -20,13 +19,11 @@ extern "C" fn handle_sigsys(
     info: *mut libc::siginfo_t,
     data: *mut libc::c_void,
 ) {
-    stderr_print("enter handler...");
     let info = unsafe { info.as_ref().unwrap_unchecked() };
     if info.si_signo != libc::SIGSYS {
         return;
     }
 
-    stderr_println("go");
     // TODO: check why info.si_code isn't SYS_seccomp as documented in seccomp(2)
     // if info.si_code != libc::SYS_seccomp as i32 {
     //     return;
@@ -41,8 +38,6 @@ extern "C" fn handle_sigsys(
             let path_ptr = regs[1] as *const c_char;
             let path = unsafe { CStr::from_ptr(path_ptr) }.to_bytes();
 
-            stderr_print("path: ");
-            stderr_println(path);
             global_state
                 .ipc_socket
                 .send_vectored(&[

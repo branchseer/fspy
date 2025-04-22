@@ -33,6 +33,7 @@ use nix::{
 
 use tokio::process::Command;
 use tokio_seqpacket::UnixSeqpacket;
+use which::which;
 
 const EXECVE_HOST_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/linux_execve_host"));
 
@@ -41,7 +42,7 @@ const EXECVE_HOST_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/linu
 //     OwnedFd::from(memfd).into_raw_fd()
 // });
 
-struct Spy {
+pub struct Spy {
     execve_host_memfd: Arc<OwnedFd>,
 }
 
@@ -69,7 +70,7 @@ fn unset_fl_flag(fd: RawFd, flag_to_remove: OFlag) -> io::Result<()> {
 }
 
 impl Spy {
-    fn init() -> io::Result<Self> {
+    pub fn init() -> io::Result<Self> {
         let execve_host_memfd = memfd_create(c"fspy_execve_host", MemFdCreateFlag::MFD_CLOEXEC)?;
         let mut execve_host_memfile = File::from(execve_host_memfd);
         execve_host_memfile.write_all(EXECVE_HOST_BINARY)?;
@@ -77,13 +78,16 @@ impl Spy {
             execve_host_memfd: Arc::new(OwnedFd::from(execve_host_memfile)),
         })
     }
-    fn new_command<S: AsRef<OsStr>>(
+    pub fn new_command<S: AsRef<OsStr>>(
         &self,
         program: S,
         config_fn: impl FnOnce(&mut Command) -> io::Result<()>,
     ) -> io::Result<(
         Command,
-        impl TryStream<Item = io::Result<FileSystemAccess>, Ok = FileSystemAccess, Error = io::Error>,
+        impl TryStream<Item = io::Result<FileSystemAccess>, Ok = FileSystemAccess, Error = io::Error>
+            + Send
+            + Sync
+            + 'static,
     )> {
         let execve_host_rawfd = self.execve_host_memfd.as_raw_fd();
         let execve_host_path = format!("/proc/self/fd/{}", execve_host_rawfd);
@@ -97,7 +101,9 @@ impl Spy {
         let sender = OwnedFd::from(sender);
         let ipc_buf_size = getsockopt(&sender, SndBuf)?;
 
-        command.env(ENVNAME_PROGRAM, program);
+        let full_program_path =
+            which(program).map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?;
+        command.env(ENVNAME_PROGRAM, full_program_path);
         command.env(ENVNAME_EXECVE_HOST_PATH, execve_host_path);
         command.env(ENVNAME_IPC_FD, sender.as_raw_fd().to_string());
         command.env(ENVNAME_BOOTSTRAP, "1");
@@ -115,7 +121,6 @@ impl Spy {
                     // unset NONBLOCK
                     unset_fl_flag(sender.as_raw_fd(), OFlag::O_NONBLOCK)?;
 
-                    // setup seccomp
                     set_no_new_privs()?;
                     Ok(())
                 }
@@ -137,22 +142,6 @@ impl Spy {
             }),
         ))
     }
-    // fn track(&self, command: &mut Command) {
-    //     let program = CString::new(command.get_program().as_bytes()).unwrap();
-
-    //     let execve_host_memfd = Arc::clone(&self.execve_host_memfd);
-    //     unsafe {
-    //         command.pre_exec(move || {
-    //             let execve_host_memfd = execve_host_memfd.as_raw_fd();
-    //             // fcntl(fd, arg)
-    //             // libc::fexecve(fd, argv, envp);
-    //             // libc::fexecve(execve_host_memfd.as_raw_fd(), argv, libc::envir)
-    //             Err(io::Error::last_os_error())
-    //         });
-    //     }
-    //     command.get_program();
-    //     command.status();
-    // }
 }
 
 #[tokio::test]
