@@ -5,25 +5,19 @@ mod exec;
 mod params;
 mod signal;
 
-use core::slice;
 use std::{
     cell::UnsafeCell,
-    env::{args_os, current_exe},
-    ffi::{CStr, CString, OsStr, c_char, c_void},
-    fs::{File, OpenOptions},
-    io::{self, Cursor, IoSlice, Write},
-    mem::{self, ManuallyDrop, MaybeUninit},
+    env::args_os,
+    ffi::{CStr, CString, OsStr, c_char},
+    fs::File,
+    io::Write,
+    mem::{ManuallyDrop, MaybeUninit},
     os::{
-        fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd},
-        unix::{
-            ffi::{OsStrExt, OsStringExt},
-            fs::OpenOptionsExt as _,
-        },
+        fd::{FromRawFd, RawFd},
+        unix::ffi::{OsStrExt, OsStringExt},
     },
     path::Path,
-    ptr::{null, null_mut},
-    thread::{sleep, spawn},
-    time::Duration,
+    ptr::null,
 };
 
 use arrayvec::ArrayVec;
@@ -32,15 +26,17 @@ use lexical_core::parse;
 
 use consts::{
     ENVNAME_BOOTSTRAP, ENVNAME_EXECVE_HOST_PATH, ENVNAME_IPC_FD, ENVNAME_PROGRAM,
-    ENVNAME_RESERVED_PREFIX, SYSCALL_MAGIC,
+    ENVNAME_RESERVED_PREFIX,
 };
-use libc::{c_int, c_long};
+
 use socket2::Socket;
 
 const PATH_MAX: usize = libc::PATH_MAX as usize;
 
 fn stderr_print(data: impl AsRef<[u8]>) {
-    ManuallyDrop::new(unsafe { File::from_raw_fd(libc::STDERR_FILENO) }).write_all(data.as_ref());
+    ManuallyDrop::new(unsafe { File::from_raw_fd(libc::STDERR_FILENO) })
+        .write_all(data.as_ref())
+        .unwrap();
 }
 fn stderr_println(data: impl AsRef<[u8]>) {
     stderr_print(data);
@@ -64,7 +60,6 @@ fn stderr_println(data: impl AsRef<[u8]>) {
 //         Err(io::Error::last_os_error())
 //     }
 // }
-
 
 struct UnsafeGlobalCell<T>(UnsafeCell<MaybeUninit<T>>);
 impl<T> UnsafeGlobalCell<T> {
@@ -158,7 +153,7 @@ fn main() {
         bootstrap::bootstrap().unwrap();
     }
 
-    signal::install_siganl_handler().unwrap();
+    signal::install_signal_handler().unwrap();
 
     let args: Vec<CString> = args_os()
         .map(|arg| CString::new(arg.into_vec()).unwrap())
@@ -173,9 +168,5 @@ fn main() {
         })
         .collect();
 
-    println!("pid: {}", unsafe { libc::getpid() });
-    stderr_print("program: ");
-    stderr_println(program.as_os_str().as_bytes());
-    dbg!(unsafe { libc::open(c"/".as_ptr(), 0) });
     userland_execve::exec(program, &args, &envs)
 }

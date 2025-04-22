@@ -1,15 +1,15 @@
 use std::{ffi::{c_char, CStr, CString}, marker::PhantomData, ptr::{null, null_mut}, slice};
 
-pub trait IsTerminator: PartialEq {
+pub trait HasTerminator: PartialEq {
     const TERMINATOR: Self;
 }
-impl IsTerminator for u8 {
+impl HasTerminator for u8 {
     const TERMINATOR: u8 = 0;
 }
-impl<T> IsTerminator for *const T {
+impl<T> HasTerminator for *const T {
     const TERMINATOR: *const T = null();
 }
-impl<T> IsTerminator for *mut T {
+impl<T> HasTerminator for *mut T {
     const TERMINATOR: *mut T = null_mut();
 }
 
@@ -21,7 +21,7 @@ impl<'a, T> Clone for Terminated<'a, T> {
 }
 impl<'a, T> Copy for Terminated<'a, T> { }
 
-impl<'a, T: IsTerminator> Terminated<'a, T> {
+impl<'a, T: HasTerminator> Terminated<'a, T> {
     pub const unsafe fn new_unchecked(ptr: *const T) -> Self {
         Terminated(ptr, PhantomData)
     }
@@ -49,7 +49,7 @@ impl<'a, T: IsTerminator> Terminated<'a, T> {
 pub struct FatTerminated<'a, T>(&'a [T]);
 impl<'a, T> Clone for FatTerminated<'a, T> {
     fn clone(&self) -> Self {
-        Self(self.0.clone())
+        Self(self.0)
     }
 }
 impl<'a, T> Copy for FatTerminated<'a, T> { }
@@ -220,7 +220,7 @@ pub unsafe fn find_env<S: AsRef<[u8]>>(name: S) -> Option<Env<'static>> {
 }
 
 pub unsafe fn iter_envp<'a>(envp: *const *const c_char) -> impl Iterator<Item = ThinCStr<'a>> {
-    unsafe { Terminated::<'static, *const c_char>::new_unchecked(envp) }.iter().map(|ptr| {
+    unsafe { Terminated::<'a, *const c_char>::new_unchecked(envp) }.iter().map(|ptr| {
         unsafe { ThinCStr::new_unchecked(*ptr) }
     })
 }
