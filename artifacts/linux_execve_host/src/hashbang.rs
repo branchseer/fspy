@@ -1,5 +1,9 @@
 use std::{
-    ffi::{OsStr, OsString}, fs::File, io::{self, BufRead, Read}, iter::from_fn, os::unix::ffi::{OsStrExt, OsStringExt as _}
+    ffi::{OsStr, OsString},
+    fs::File,
+    io::{self, BufRead, Read},
+    iter::from_fn,
+    os::unix::ffi::{OsStrExt, OsStringExt as _},
 };
 
 use arrayvec::ArrayVec;
@@ -34,7 +38,7 @@ fn is_whitespace(c: u8) -> bool {
 
 // https://lwn.net/Articles/779997/
 // The array used to hold the shebang line is defined to be 128 bytes in length
-const PEEK_LIMIT: usize = 128;
+pub const DEFAULT_PEEK_SIZE: usize = 128;
 
 pub fn parse_hashbang<'a>(buf: &mut [u8], mut reader: impl Read) -> io::Result<Option<HashBang>> {
     let mut total_read_size = 0;
@@ -83,7 +87,7 @@ fn parse_hashbang_recursive_impl<R: Read>(
     buf: &mut [u8],
     reader: R,
     mut get_reader: impl FnMut(&OsStr) -> io::Result<R>,
-    mut on_hashbang: impl FnMut(HashBang<'_>)-> io::Result<()>,
+    mut on_hashbang: impl FnMut(HashBang<'_>) -> io::Result<()>,
 ) -> io::Result<()> {
     let Some(mut hashbang) = parse_hashbang(buf, reader)? else {
         return Ok(());
@@ -99,16 +103,20 @@ fn parse_hashbang_recursive_impl<R: Read>(
     }
 }
 
-pub fn parse_hashbang_recursive<'arg, const ARG_CAP: usize, const ARGV_CAP: usize, R: Read, F: FnMut(&OsStr) -> io::Result<R>, O: FnMut(&OsStr) -> io::Result<()>>(
-    peek_buf: &mut [u8],
+pub fn parse_hashbang_recursive<
+    const PEEK_CAP: usize,
+    R: Read,
+    O: FnMut(&OsStr) -> io::Result<R>,
+    C: FnMut(&OsStr) -> io::Result<()>,
+>(
     opts: RecursiveParseOpts,
     reader: R,
-    mut get_reader: F,
-    arg_buf: &'arg mut ArrayVec<u8, ARG_CAP>,
-    argv_out: &mut ArrayVec<&'arg OsStr, ARGV_CAP>,
+    open: O,
+    mut on_arg_reverse: C,
 ) -> io::Result<()> {
+    let mut peek_buf = [0u8; PEEK_CAP];
     let mut recursive_count = 0;
-    parse_hashbang_recursive_impl(peek_buf, reader, get_reader, |hashbang| {
+    parse_hashbang_recursive_impl(&mut peek_buf, reader, open, |hashbang| {
         if recursive_count > opts.recursion_limit {
             return Err(io::Error::from_raw_os_error(libc::ELOOP));
         }
@@ -119,74 +127,97 @@ pub fn parse_hashbang_recursive<'arg, const ARG_CAP: usize, const ARGV_CAP: usiz
         } else {
             on_arg_reverse(hashbang.arguments.as_one())?;
         }
+        on_arg_reverse(hashbang.interpreter)?;
         recursive_count += 1;
         Ok(())
     })?;
-    todo!()
+    Ok(())
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use std::os::unix::ffi::OsStrExt;
+#[cfg(test)]
+mod tests {
+    use std::os::unix::ffi::OsStrExt;
 
-//     use super::*;
+    use super::*;
 
-//     fn arguments_to_bytes(arguments: Vec<OsString>) -> Vec<Vec<u8>> {
-//         arguments.into_iter().map(|arg| arg.into_vec()).collect()
-//     }
+    #[test]
+    fn hashbang_basic() {
+        let mut buf = [0u8; DEFAULT_PEEK_SIZE];
+        let hashbang = parse_hashbang(&mut buf, "#!/bin/sh a b\n".as_bytes())
+            .unwrap()
+            .unwrap();
+        assert_eq!(hashbang.interpreter.as_bytes(), b"/bin/sh");
+        assert_eq!(hashbang.arguments.as_one().as_bytes(), b"a b");
+        assert_eq!(
+            hashbang
+                .arguments
+                .split()
+                .map(OsStrExt::as_bytes)
+                .collect::<Vec<_>>(),
+            vec![b"a", b"b"]
+        );
+    }
 
-//     #[test]
-//     fn hashbang_basic() {
-//         let hashbang = parse_hashbang("#!/bin/sh a\n".as_bytes(), Some(false))
-//             .unwrap()
-//             .unwrap();
-//         assert_eq!(hashbang.interpreter, "/bin/sh");
-//         assert_eq!(arguments_to_bytes(hashbang.arguments), &[b"a"]);
-//     }
+    #[test]
+    fn hashbang_triming_spaces() {
+        let mut buf = [0u8; DEFAULT_PEEK_SIZE];
+        let hashbang = parse_hashbang(&mut buf, "#! /bin/sh a \n".as_bytes())
+            .unwrap()
+            .unwrap();
+        assert_eq!(hashbang.interpreter, "/bin/sh");
+        assert_eq!(hashbang.arguments.as_one().as_bytes(), b"a");
+        assert_eq!(
+            hashbang
+                .arguments
+                .split()
+                .map(OsStrExt::as_bytes)
+                .collect::<Vec<_>>(),
+            vec![b"a"]
+        );
+    }
 
-//     #[test]
-//     fn hashbang_triming_spaces() {
-//         let hashbang = parse_hashbang("#! /bin/sh a \n".as_bytes(), Some(false))
-//             .unwrap()
-//             .unwrap();
-//         assert_eq!(hashbang.interpreter, "/bin/sh");
-//         assert_eq!(arguments_to_bytes(hashbang.arguments), &[b"a"]);
-//     }
-
-//     #[test]
-//     fn hashbang_split_arguments() {
-//         let hashbang = parse_hashbang("#! /bin/sh a  b\tc \n".as_bytes(), Some(true))
-//             .unwrap()
-//             .unwrap();
-//         assert_eq!(hashbang.interpreter, "/bin/sh");
-//         assert_eq!(arguments_to_bytes(hashbang.arguments), &[b"a", b"b", b"c"]);
-//     }
-//     #[test]
-//     fn hashbang_not_split_arguments() {
-//         let hashbang = parse_hashbang("#! /bin/sh  a  b\tc \n".as_bytes(), Some(false))
-//             .unwrap()
-//             .unwrap();
-//         assert_eq!(hashbang.interpreter, "/bin/sh");
-//         assert_eq!(arguments_to_bytes(hashbang.arguments), &[b"a  b\tc"]);
-//     }
-
-//     #[test]
-//     fn hashbang_recursive_basic() {
-//         let hashbang = parse_hashbang_recursive(
-//             "#!/bin/B".as_bytes(),
-//             |path| {
-//                 Ok(match path.as_bytes() {
-//                     b"/bin/B" => "#! /bin/A param1 param2".as_bytes(),
-//                     b"/bin/A" => "not a shebang script".as_bytes(),
-//                     _ => unreachable!("Unexpected path: {}", path.display()),
-//                 })
-//             },
-//             Some(false),
-//             Some(4),
-//         )
-//         .unwrap()
-//         .unwrap();
-//         assert_eq!(hashbang.interpreter, "/bin/A");
-//         assert_eq!(hashbang.arguments, &["param1", "param2", "/bin/B"]);
-//     }
-// }
+    #[test]
+    fn hashbang_split_arguments() {
+        let mut buf = [0u8; DEFAULT_PEEK_SIZE];
+        let hashbang = parse_hashbang(&mut buf, "#! /bin/sh a  b\tc \n".as_bytes())
+            .unwrap()
+            .unwrap();
+        assert_eq!(hashbang.interpreter, "/bin/sh");
+        assert_eq!(
+            hashbang
+                .arguments
+                .split()
+                .map(OsStrExt::as_bytes)
+                .collect::<Vec<_>>(),
+            &[b"a", b"b", b"c"]
+        );
+    }
+    #[test]
+    fn hashbang_recursive_basic() {
+        let mut args = Vec::<String>::new();
+        parse_hashbang_recursive::<DEFAULT_PEEK_SIZE, _, _, _>(
+            RecursiveParseOpts {
+                split_arguments: true,
+                ..RecursiveParseOpts::default()
+            },
+            "#!/bin/B bparam".as_bytes(),
+            |path| {
+                Ok(match path.as_bytes() {
+                    b"/bin/B" => "#! /bin/A aparam1 aparam2".as_bytes(),
+                    b"/bin/A" => "not a shebang script".as_bytes(),
+                    _ => unreachable!("Unexpected path: {}", path.display()),
+                })
+            },
+            |arg| {
+                args.push(str::from_utf8(arg.as_bytes()).unwrap().to_owned());
+                Ok(())
+            },
+        )
+        .unwrap();
+        args.reverse();
+        assert_eq!(
+            args,
+            vec!["/bin/A", "aparam1", "aparam2", "/bin/B", "bparam"]
+        );
+    }
+}

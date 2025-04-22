@@ -1,19 +1,18 @@
 mod bootstrap;
 mod consts;
-mod env;
+mod nul;
 mod exec;
 mod hashbang;
 mod params;
 mod signal;
+mod client;
 
 use std::{
-    borrow::Cow,
     cell::UnsafeCell,
     env::args_os,
     ffi::{CStr, CString, OsStr, c_char},
-    fs::{File, OpenOptions},
-    io::{BufReader, Write},
-    iter::once,
+    fs::File,
+    io::Write,
     mem::{ManuallyDrop, MaybeUninit},
     os::{
         fd::{FromRawFd, RawFd},
@@ -23,8 +22,7 @@ use std::{
 };
 
 use arrayvec::ArrayVec;
-use env::{Env, Terminated, ThinCStr, find_env, iter_environ, iter_envp};
-use hashbang::parse_hashbang_recursive;
+use nul::{Env, NulTerminated, ThinCStr, find_env, iter_environ, iter_envp};
 use lexical_core::parse;
 
 use consts::{
@@ -94,46 +92,6 @@ fn is_env_reserved(env: ThinCStr<'_>) -> bool {
     true
 }
 
-impl GlobalState {
-    unsafe fn prepare_envp<const N: usize, const M: usize>(
-        &self,
-        program: *const c_char,
-        envp: *const *const c_char,
-        program_env_buf: &mut ArrayVec<u8, N>,
-        envp_buf: &mut ArrayVec<*const c_char, M>,
-    ) {
-        let program = unsafe { Terminated::new_unchecked(program) }.to_fat();
-        program_env_buf.clear();
-        program_env_buf
-            .try_extend_from_slice(ENVNAME_PROGRAM.as_bytes())
-            .unwrap();
-        program_env_buf.push(b'=');
-        program_env_buf
-            .try_extend_from_slice(program.as_slice_with_term())
-            .unwrap();
-
-        envp_buf.clear();
-        envp_buf.push(program_env_buf.as_ptr());
-        envp_buf.push(self.host_path_env.data().as_ptr());
-        envp_buf.push(self.ipc_fd_env.data().as_ptr());
-
-        for env in unsafe { iter_envp(envp) } {
-            if is_env_reserved(env) {
-                let env_data = env.to_fat().as_slice();
-
-                stderr_print(b"fspy: child process should not spawn with reserved env name (");
-                stderr_print(env_data);
-                stderr_print(b")\n");
-                unsafe { libc::abort() };
-            }
-            envp_buf.push(env.as_ptr());
-        }
-        envp_buf.push(null());
-    }
-}
-
-static GLOBAL_STATE: UnsafeGlobalCell<GlobalState> = UnsafeGlobalCell::uninit();
-
 fn main() {
     let is_boostrap = unsafe { find_env(ENVNAME_BOOTSTRAP) }.is_some();
     let program_env = unsafe { find_env(ENVNAME_PROGRAM) }.unwrap();
@@ -177,6 +135,9 @@ fn main() {
 
     // let mut program = Cow::Borrowed(program);
     let mut args: Vec<CString> = vec![];
+    for arg in args_os() {
+        args.push(CString::new(arg.into_vec()).unwrap());
+    }
     // let mut original_args = args_os();
     // if let Some(hashbang) = hashbang {
     //     let _ = original_args.next(); //  Ignoring original argv0. For hashbang scripts, argv0 should be the interpreter.
@@ -188,9 +149,6 @@ fn main() {
     //     program = Cow::Owned(hashbang.interpreter);
     // }
 
-    // for arg in original_args {
-    //     args.push(CString::new(arg.into_vec()).unwrap());
-    // }
 
     // eprintln!("after shebang: {} {:?}", program.display(), &args);
 
