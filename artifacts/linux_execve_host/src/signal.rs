@@ -7,7 +7,7 @@ use crate::PATH_MAX;
 use arrayvec::ArrayVec;
 use libc::c_char;
 use linux_raw_sys::general as linux_sys;
-use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, sigaction};
+use nix::sys::signal::{pthread_sigmask, sigaction, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow, Signal};
 
 use crate::{
     GLOBAL_STATE,
@@ -88,7 +88,13 @@ extern "C" fn handle_sigsys(
     }
 }
 
-pub fn install_siganl_handler() -> io::Result<()> {
+pub fn install_signal_handler() -> io::Result<()> {
+    // Unset SIGSYS block mask which is preserved across `execve`.
+    // See "Signal mask and pending signals" in signal(7)
+    let mut sigset = SigSet::empty();
+    sigset.add(Signal::SIGSYS);
+    sigset.thread_unblock()?;
+
     unsafe {
         sigaction(
             Signal::SIGSYS,
