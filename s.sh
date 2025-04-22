@@ -1,3 +1,3 @@
-#!/bin/sh
+#!/usr/bin/env node
 
-echo hello
+console.log(process.argv0)

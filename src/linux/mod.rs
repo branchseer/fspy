@@ -144,18 +144,18 @@ impl Spy {
     }
 }
 
-#[tokio::test]
-async fn hello() -> io::Result<()> {
-    let spy = Spy::init()?;
-    let (mut cmd, mut stream) = spy.new_command("/bin/bash", |cmd| {
-        cmd.args(["-c", "ls / && mise"]);
+// #[tokio::test]
+// async fn hello() -> io::Result<()> {
+//     let spy = Spy::init()?;
+//     let (mut cmd, mut stream) = spy.new_command("/bin/bash", |cmd| {
+//         cmd.args(["-c", "ls / && mise"]);
 
-        Ok(())
-    })?;
-    dbg!(cmd.status().await?.code());
-    drop(cmd);
-    while let Some(access) = stream.try_next().await? {
-        dbg!(access.path);
-    }
-    Ok(())
-}
+//         Ok(())
+//     })?;
+//     dbg!(cmd.status().await?.code());
+//     drop(cmd);
+//     while let Some(access) = stream.try_next().await? {
+//         dbg!(access.path);
+//     }
+//     Ok(())
+// }

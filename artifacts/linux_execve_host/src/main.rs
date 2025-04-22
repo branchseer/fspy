@@ -2,26 +2,29 @@ mod bootstrap;
 mod consts;
 mod env;
 mod exec;
+mod hashbang;
 mod params;
 mod signal;
 
 use std::{
+    borrow::Cow,
     cell::UnsafeCell,
     env::args_os,
     ffi::{CStr, CString, OsStr, c_char},
-    fs::File,
-    io::Write,
+    fs::{File, OpenOptions},
+    io::{BufReader, Write},
+    iter::once,
     mem::{ManuallyDrop, MaybeUninit},
     os::{
         fd::{FromRawFd, RawFd},
         unix::ffi::{OsStrExt, OsStringExt},
     },
-    path::Path,
     ptr::null,
 };
 
 use arrayvec::ArrayVec;
 use env::{Env, Terminated, ThinCStr, find_env, iter_environ, iter_envp};
+use hashbang::parse_hashbang_recursive;
 use lexical_core::parse;
 
 use consts::{
@@ -137,7 +140,7 @@ fn main() {
     let host_path_env = unsafe { find_env(ENVNAME_EXECVE_HOST_PATH) }.unwrap();
     let ipc_fd_env = unsafe { find_env(ENVNAME_IPC_FD) }.unwrap();
 
-    let program = Path::new(OsStr::from_bytes(program_env.value().as_slice()));
+    let program = OsStr::from_bytes(program_env.value().as_slice());
     let ipc_fd = parse::<RawFd>(ipc_fd_env.value().as_slice()).unwrap();
     let global_state = GlobalState {
         host_path_env,
@@ -155,9 +158,43 @@ fn main() {
 
     signal::install_signal_handler().unwrap();
 
-    let args: Vec<CString> = args_os()
-        .map(|arg| CString::new(arg.into_vec()).unwrap())
-        .collect();
+    // eprintln!("before shebang: {} ({})", program.display(), unsafe {
+    //     libc::getpid()
+    // });
+
+    // let hashbang = {
+    //     let program_file = File::open(program).unwrap();
+    //     // TODO: check executable permission
+    //     let buf_read = BufReader::new(program_file);
+    //     parse_hashbang_recursive(
+    //         buf_read,
+    //         |path| Ok(BufReader::new(File::open(path)?)),
+    //         None,
+    //         None,
+    //     )
+    //     .unwrap()
+    // };
+
+    // let mut program = Cow::Borrowed(program);
+    let mut args: Vec<CString> = vec![];
+    // let mut original_args = args_os();
+    // if let Some(hashbang) = hashbang {
+    //     let _ = original_args.next(); //  Ignoring original argv0. For hashbang scripts, argv0 should be the interpreter.
+    //     args = once(hashbang.interpreter.clone())
+    //         .chain(hashbang.arguments)
+    //         .chain(once(program.into_owned()))
+    //         .map(|arg| CString::new(arg.into_vec()).unwrap())
+    //         .collect();
+    //     program = Cow::Owned(hashbang.interpreter);
+    // }
+
+    // for arg in original_args {
+    //     args.push(CString::new(arg.into_vec()).unwrap());
+    // }
+
+    // eprintln!("after shebang: {} {:?}", program.display(), &args);
+
+
     let envs: Vec<&CStr> = unsafe { iter_environ() }
         .flat_map(|data| {
             if is_env_reserved(data) {
@@ -168,5 +205,5 @@ fn main() {
         })
         .collect();
 
-    userland_execve::exec(program, &args, &envs)
+    userland_execve::exec(program.as_ref(), &args, &envs)
 }
