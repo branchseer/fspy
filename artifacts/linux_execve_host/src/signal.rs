@@ -3,14 +3,14 @@ use std::{
     io::{self, IoSlice},
 };
 
-use crate::PATH_MAX;
+use crate::{client::global_client, PATH_MAX};
 use arrayvec::ArrayVec;
 use libc::c_char;
 use linux_raw_sys::general as linux_sys;
 use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, sigaction};
 
 use crate::{
-    GLOBAL_STATE,
+    // GLOBAL_STATE,
     consts::{ENVNAME_PROGRAM, SYSCALL_MAGIC},
 };
 
@@ -32,13 +32,13 @@ extern "C" fn handle_sigsys(
     // aarch64
     let regs = &mut ucontext.uc_mcontext.regs;
     let sysno = regs[8] as u32;
-    let global_state = unsafe { GLOBAL_STATE.get() };
+    let client = unsafe { global_client() };
     match sysno {
         linux_sys::__NR_openat => {
             let path_ptr = regs[1] as *const c_char;
             let path = unsafe { CStr::from_ptr(path_ptr) }.to_bytes();
 
-            global_state
+            client
                 .ipc_socket
                 .send_vectored(&[
                     // IoSlice::new( slice::from_ref(&(AccessKind::Open.into()))),
@@ -65,19 +65,19 @@ extern "C" fn handle_sigsys(
                 ArrayVec::<u8, { ENVNAME_PROGRAM.len() + 1 + PATH_MAX + 1 }>::new();
             let mut envp_buf = ArrayVec::<*const c_char, 1024>::new();
 
-            unsafe {
-                global_state.prepare_envp(program, envp, &mut program_env_buf, &mut envp_buf)
-            };
+            // unsafe {
+            //     global_state.prepare_envp(program, envp, &mut program_env_buf, &mut envp_buf)
+            // };
 
-            regs[0] = unsafe {
-                libc::syscall(
-                    linux_sys::__NR_execve as _,
-                    global_state.host_path_env.value().as_ptr(),
-                    argv,
-                    envp_buf.as_ptr(),
-                    SYSCALL_MAGIC,
-                )
-            } as _;
+            // regs[0] = unsafe {
+            //     libc::syscall(
+            //         linux_sys::__NR_execve as _,
+            //         global_state.host_path_env.value().as_ptr(),
+            //         argv,
+            //         envp_buf.as_ptr(),
+            //         SYSCALL_MAGIC,
+            //     )
+            // } as _;
         }
         _ => {}
     }

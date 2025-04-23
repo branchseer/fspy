@@ -6,6 +6,7 @@ mod hashbang;
 mod params;
 mod signal;
 mod client;
+mod abort;
 
 use std::{
     cell::UnsafeCell,
@@ -83,7 +84,7 @@ struct GlobalState {
 }
 
 fn is_env_reserved(env: ThinCStr<'_>) -> bool {
-    let mut iter = env.iter().copied();
+    let mut iter = env.copied();
     for ch in ENVNAME_RESERVED_PREFIX.as_bytes() {
         if iter.next() != Some(*ch) {
             return false;
@@ -106,9 +107,6 @@ fn main() {
         ipc_fd_env,
     };
 
-    unsafe {
-        GLOBAL_STATE.set(global_state);
-    }
 
     if is_boostrap {
         bootstrap::bootstrap().unwrap();

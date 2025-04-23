@@ -1,4 +1,4 @@
-use std::{ffi::{c_char, CStr, CString}, marker::PhantomData, ptr::{null, null_mut, NonNull}, slice};
+use std::{ffi::{c_char, CStr, CString}, iter::FusedIterator, marker::PhantomData, ptr::{null, null_mut, NonNull}, slice};
 
 pub trait Zeroable: PartialEq {
     const ZERO: Self;
@@ -13,7 +13,6 @@ impl<T> Zeroable for *mut T {
     const ZERO: *mut T = null_mut();
 }
 
-#[repr(transparent)]
 pub struct NulTerminated<'a, T>(NonNull<T>, PhantomData<&'a [T]>);
 
 impl<'a, T> Clone for NulTerminated<'a, T> {
@@ -23,26 +22,37 @@ impl<'a, T> Clone for NulTerminated<'a, T> {
 }
 impl<'a, T> Copy for NulTerminated<'a, T> { }
 
+impl<'a, T: Zeroable> Iterator for NulTerminated<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let element = unsafe { self.0.as_ref() };
+        if element.eq(&T::ZERO) {
+            return None;
+        }
+        self.0 = unsafe { self.0.add(1) };
+        Some(element)
+    }
+}
+impl<'a, T: Zeroable> FusedIterator for NulTerminated<'a, T> {}
+
 impl<'a, T: Zeroable> NulTerminated<'a, T> {
+    pub const unsafe fn from_nullable_ptr(ptr: *const T) -> Option<Self> {
+        if let Some(nonnull) = NonNull::new(ptr.cast_mut()) {
+            Some(NulTerminated(nonnull, PhantomData))
+        } else {
+            None
+        }
+    }
+
     pub const unsafe fn from_ptr(ptr: *const T) -> Self {
         NulTerminated(unsafe { NonNull::new_unchecked(ptr.cast_mut()) }, PhantomData)
-    }
-    pub fn iter(self) -> impl Iterator<Item = &'a T>  {
-        let mut cur = self.0;
-        core::iter::from_fn(move || {
-            let element = unsafe { cur.as_ref() };
-            if element.eq(&T::ZERO) {
-                return None
-            }
-            cur = unsafe { cur.add(1) };
-            Some(element)
-        })
     }
     pub fn as_ptr(self) -> *const T {
         self.0.as_ptr()
     }
     pub fn to_counted(self) -> CountedNulTerminated<'a, T> {
-        let len_without_term = self.iter().count();
+        let len_without_term = self.count();
         CountedNulTerminated(unsafe { slice::from_raw_parts(self.0.as_ptr(), len_without_term + 1) })
     }
 }
@@ -106,7 +116,7 @@ impl<'a> From<CountedCStr<'a>> for Env<'a> {
 impl<'a> Env<'a> {
     pub fn new_if_name_eq<S: AsRef<[u8]>>(name: S, data: ThinCStr<'a>) -> Option<Self> {
         let name = name.as_ref();
-        let mut data_iter = data.iter().copied();
+        let mut data_iter = data.copied();
         for name_char in name {
             let name_char = *name_char;
             if matches!(name_char, b'\0' | b'=') {
@@ -153,9 +163,9 @@ mod tests {
     #[test]
     fn terminated_iter() {
         let terminated = unsafe { NulTerminated::from_ptr([1u8, 0].as_ptr()) };
-        assert_eq!(terminated.iter().copied().collect::<Vec<u8>>(), vec![1]);
+        assert_eq!(terminated.copied().collect::<Vec<u8>>(), vec![1]);
         let terminated = unsafe { NulTerminated::from_ptr([0].as_ptr()) };
-        assert_eq!(terminated.iter().copied().collect::<Vec<u8>>(), vec![]);
+        assert_eq!(terminated.copied().collect::<Vec<u8>>(), vec![]);
     }
     #[test]
     fn terminated_to_fat() {
@@ -221,7 +231,7 @@ pub unsafe fn find_env<S: AsRef<[u8]>>(name: S) -> Option<Env<'static>> {
 }
 
 pub unsafe fn iter_envp<'a>(envp: *const *const c_char) -> impl Iterator<Item = ThinCStr<'a>> {
-    unsafe { NulTerminated::<'a, *const c_char>::from_ptr(envp) }.iter().map(|ptr| {
+    unsafe { NulTerminated::<'a, *const c_char>::from_ptr(envp) }.map(|ptr| {
         unsafe { ThinCStr::from_ptr(*ptr) }
     })
 }
