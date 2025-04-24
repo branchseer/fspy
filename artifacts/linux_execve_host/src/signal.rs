@@ -1,18 +1,7 @@
-use std::{
-    ffi::CStr,
-    io::{self, IoSlice},
-};
+use std::io::{self};
 
-use crate::{PATH_MAX, client::global_client};
-use arrayvec::ArrayVec;
-use libc::c_char;
-use linux_raw_sys::general as linux_sys;
 use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, sigaction};
 
-use crate::{
-    // GLOBAL_STATE,
-    consts::{ENVNAME_PROGRAM, SYSCALL_MAGIC},
-};
 
 extern "C" fn handle_sigsys(
     _signo: libc::c_int,

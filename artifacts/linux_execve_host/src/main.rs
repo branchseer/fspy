@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused)]
+
 mod bootstrap;
 mod consts;
 mod nul;
@@ -11,7 +14,7 @@ mod abort;
 use std::{
     cell::UnsafeCell,
     env::args_os,
-    ffi::{CStr, CString, OsStr, c_char},
+    ffi::{CStr, CString, OsStr},
     fs::File,
     io::Write,
     mem::{ManuallyDrop, MaybeUninit},
@@ -19,11 +22,9 @@ use std::{
         fd::{FromRawFd, RawFd},
         unix::ffi::{OsStrExt, OsStringExt},
     },
-    ptr::null,
 };
 
-use arrayvec::ArrayVec;
-use nul::{Env, NulTerminated, ThinCStr, find_env, iter_environ, iter_envp};
+use nul::{Env, ThinCStr, find_env, iter_environ};
 use lexical_core::parse;
 
 use consts::{

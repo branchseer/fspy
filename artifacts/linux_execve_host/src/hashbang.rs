@@ -1,12 +1,9 @@
 use std::{
-    ffi::{OsStr, OsString},
-    fs::File,
+    ffi::OsStr,
     io::{self, BufRead, Read},
-    iter::from_fn,
-    os::unix::ffi::{OsStrExt, OsStringExt as _},
+    os::unix::ffi::OsStrExt,
 };
 
-use arrayvec::ArrayVec;
 
 #[derive(Debug, Clone, Copy)]
 pub struct HashBang<'a> {
