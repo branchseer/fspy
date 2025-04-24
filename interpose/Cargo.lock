@@ -3,12 +3,6 @@
 version = 4
 
 [[package]]
-name = "argv"
-version = "0.1.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e454c7dec505af23625a10d674d9a42553fb61b06adb58cf2363125bfdaf1142"
-
-[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -31,6 +25,20 @@ name = "cfg_aliases"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+
+[[package]]
+name = "fspy_interpose"
+version = "0.0.0"
+dependencies = [
+ "arrayvec",
+ "lexical-core",
+ "libc",
+ "linux-raw-sys",
+ "nix 0.29.0",
+ "seccompiler",
+ "socket2",
+ "userland-execve",
+]
 
 [[package]]
 name = "goblin"
@@ -83,21 +91,6 @@ name = "linux-raw-sys"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd945864f07fe9f5371a27ad7b52a172b4b499999f1d97574c9fa68373937e12"
-
-[[package]]
-name = "linux_execve_host"
-version = "0.0.0"
-dependencies = [
- "argv",
- "arrayvec",
- "lexical-core",
- "libc",
- "linux-raw-sys",
- "nix 0.29.0",
- "seccompiler",
- "socket2",
- "userland-execve",
-]
 
 [[package]]
 name = "log"

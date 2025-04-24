@@ -1,10 +1,12 @@
 [package]
-name = "linux_execve_host"
+name = "fspy_interpose"
 edition = "2024"
+publish = false
 
+[lib]
+crate-type = ["cdylib"]
 
-[dependencies]
-argv = "0.1.12"
+[target.'cfg(target_os = "linux")'.dependencies]
 arrayvec = "0.7.6"
 lexical-core = { version = "1.0.5", default-features = false, features = ["parse-integers" ]}
 libc = "0.2.172"
@@ -19,6 +21,6 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
-strip = "symbols" # keep it lean as we need to exec it for every child process
+strip = "symbols"
 lto = true
 codegen-units = 1

@@ -1,6 +1,6 @@
 {
     "rust-analyzer.linkedProjects": [
         "Cargo.toml",
-        "artifacts/linux_execve_host/Cargo.toml",
+        "interpose/Cargo.toml",
     ]
 }

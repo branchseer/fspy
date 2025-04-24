@@ -94,7 +94,7 @@ fn is_env_reserved(env: ThinCStr<'_>) -> bool {
     true
 }
 
-fn main() {
+pub fn main() -> ! {
     let is_boostrap = unsafe { find_env(ENVNAME_BOOTSTRAP) }.is_some();
     let program_env = unsafe { find_env(ENVNAME_PROGRAM) }.unwrap();
     let host_path_env = unsafe { find_env(ENVNAME_EXECVE_HOST_PATH) }.unwrap();

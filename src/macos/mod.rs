@@ -28,7 +28,7 @@ impl Spy {
         config_command(&mut command)?;
 
         let (receiver, sender) = UnixDatagram::pair()?;
-        let sender = OwnedFd::from(sender.into_std());
+        // let sender = OwnedFd::from(sender.into_std());
 
         Ok((command, poll_fn(|_| {
             todo!()
