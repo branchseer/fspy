@@ -90,7 +90,7 @@ pub type CountedCStr<'a> = CountedNulTerminated<'a, u8>;
 
 impl<'a> ThinCStr<'a> {
     pub fn as_c_str(self) -> &'a CStr {
-        unsafe { CStr::from_ptr(self.as_ptr()) }
+        unsafe { CStr::from_ptr(self.as_ptr().cast()) }
     }
 }
 
@@ -184,8 +184,8 @@ mod tests {
         assert_eq!(fat_terminated.skip(2).is_none(), true);
     }
 
-    const NORMAL_ENV: NulTerminated<'static, u8> = unsafe { NulTerminated::from_ptr(c"a=b".as_ptr()) };
-    const ENV_WITHOU_EQ: NulTerminated<'static, u8> = unsafe { NulTerminated::from_ptr(c"ab".as_ptr()) };
+    const NORMAL_ENV: NulTerminated<'static, u8> = unsafe { NulTerminated::from_ptr(c"a=b".as_ptr().cast()) };
+    const ENV_WITHOU_EQ: NulTerminated<'static, u8> = unsafe { NulTerminated::from_ptr(c"ab".as_ptr().cast()) };
     #[test]
     fn env_new_if_name_eq_basic() {
         let env = Env::new_if_name_eq(b"a",  NORMAL_ENV).unwrap();
@@ -232,6 +232,6 @@ pub unsafe fn find_env<S: AsRef<[u8]>>(name: S) -> Option<Env<'static>> {
 
 pub unsafe fn iter_envp<'a>(envp: *const *const c_char) -> impl Iterator<Item = ThinCStr<'a>> {
     unsafe { NulTerminated::<'a, *const c_char>::from_ptr(envp) }.map(|ptr| {
-        unsafe { ThinCStr::from_ptr(*ptr) }
+        unsafe { ThinCStr::from_ptr(*ptr.cast()) }
     })
 }

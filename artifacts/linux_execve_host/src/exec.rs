@@ -7,17 +7,17 @@ use crate::{abort::abort_with, client::Client, consts::ENVNAME_PROGRAM, hashbang
 
 pub struct ExecContext<'a> {
     program: NulTerminated<'a, u8>,
-    argv: Option<NulTerminated<'a, *const c_char>>,
-    envp: Option<NulTerminated<'a, *const c_char>>,
+    argv: Option<NulTerminated<'a, *const u8>>,
+    envp: Option<NulTerminated<'a, *const u8>>,
     cstr_buf: ArrayVec<u8, 1024>,
-    ptr_buf: ArrayVec<*const c_char, 1024>,
+    ptr_buf: ArrayVec<*const u8, 1024>,
     client: &'a Client<'a>
 }
 
 pub fn exec_with_host(program: *const c_char, argv: *const *const c_char, envp: *const *const c_char, client: &Client<'_>) -> nix::Result<()> {
-    let program = unsafe { NulTerminated::from_ptr(program) };
-    let argv =  unsafe { NulTerminated::from_nullable_ptr(argv) };
-    let envp =  unsafe { NulTerminated::from_nullable_ptr(envp) };
+    let program = unsafe { NulTerminated::from_ptr(program.cast()) };
+    let argv =  unsafe { NulTerminated::from_nullable_ptr(argv.cast()) };
+    let envp =  unsafe { NulTerminated::from_nullable_ptr(envp.cast()) };
 
     // taking mut reference to ensure ctx not to be moved which would invalidate new envp/argv 
     let ctx = &mut ExecContext {
@@ -36,7 +36,7 @@ impl<'a> ExecContext<'a> {
         self.cstr_buf.try_push(0).map_err(|_| nix::Error::E2BIG)?;
         Ok(unsafe { NulTerminated::from_ptr(&self.cstr_buf[start]) })
     }
-    fn try_push_ptr(&mut self, ptr: *const c_char) -> nix::Result<()> {
+    fn try_push_ptr(&mut self, ptr: *const u8) -> nix::Result<()> {
         self.ptr_buf.try_push(ptr).map_err(|_| nix::Error::E2BIG)
     }
 
@@ -64,7 +64,7 @@ impl<'a> ExecContext<'a> {
         }
         self.try_push_ptr(null())?;
         let envp: *const *const u8 = &self.ptr_buf[envp_start];
-        Ok(envp)
+        Ok(envp.cast())
     }
 
     fn prepare_argv(&mut self) -> nix::Result<*const *const c_char> {

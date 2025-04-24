@@ -1,4 +1,5 @@
 [build]
+target = "x86_64-unknown-linux-musl" # make rust-analyser work on non-linux os
 target-dir = "../../target/fspy_linux_execve_host_target" 
 
 [target.'cfg(target_env = "musl")']
