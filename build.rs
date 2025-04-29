@@ -1,13 +1,14 @@
 use std::{
     env::{self, current_dir},
     ffi::OsStr,
-    fs::{self, File},
-    io::BufWriter,
-    path::{Path, PathBuf},
+    fs,
+    io::Read,
+    path::Path,
     process::Command,
 };
 
-use const_fnv1a_hash::fnv1a_hash_str_128;
+use anyhow::{bail, Context};
+use xxhash_rust::xxh3::xxh3_128;
 
 fn command_with_clean_env(program: impl AsRef<OsStr>) -> Command {
     let mut command = Command::new(program);
@@ -98,41 +99,113 @@ fn build_interpose() {
     .unwrap();
 }
 
-fn ensure_downloaded(url: &str) -> PathBuf {
-    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
-    let filename = format!("{:x}", fnv1a_hash_str_128(url));
-    let download_path = out_dir.join(&filename);
-    if fs::exists(&download_path).unwrap() {
-        return download_path;
-    }
-    let download_tmp_path = out_dir.join(format!("{}.tmp", filename));
-
+fn download(url: &str) -> anyhow::Result<impl Read + use<>> {
     let resp = attohttpc::get(url).send().unwrap();
-    assert_eq!(resp.status(), attohttpc::StatusCode::OK, "non-ok response from {}", url);
-    resp.write_to(BufWriter::new(File::create(&download_tmp_path).unwrap()))
-        .unwrap();
-    fs::rename(&download_tmp_path, &download_path).unwrap();
-    download_path
+    if resp.status() != attohttpc::StatusCode::OK {
+        bail!("non-ok response: {:?}", resp.status())
+    }
+    Ok(resp)
 }
 
-fn fetch_macos_binaries() {
-    if env::var("CARGO_CFG_TARGET_OS").unwrap() != "macos" {
-        return;
+fn unpack_tar_gz(content: impl Read, path: &str) -> anyhow::Result<Vec<u8>> {
+    use flate2::read::GzDecoder;
+    use tar::Archive;
+
+    // let path = path.as_ref();
+    let tar = GzDecoder::new(content);
+    let mut archive = Archive::new(tar);
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        if entry.path_bytes().as_ref() == path.as_bytes() {
+            let mut data = Vec::<u8>::with_capacity(entry.size() as usize);
+            entry.read_to_end(&mut data)?;
+            return Ok(data);
+        }
     }
+    bail!("Path {} not found in tar gz", path)
+}
+
+fn download_and_unpack_tar_gz(url: &str, path: &str) -> anyhow::Result<Vec<u8>> {
+    let resp = download(url).context(format!("Failed to get ok response from {}", url))?;
+    let data = unpack_tar_gz(resp, path).context(format!(
+        "Failed to download or unpack {} out of {}",
+        path, url
+    ))?;
+    Ok(data)
+}
+
+const MACOS_BINARY_DOWNLOADS: &[(&str, &[(&str, &str, u128)])] = &[
+    (
+        "aarch64",
+        &[(
+            "https://github.com/romkatv/zsh-bin/releases/download/v6.1.1/zsh-5.8-darwin-arm64.tar.gz",
+            "bin/zsh",
+            43098371974591205243088456593081391946,
+        ),
+        (
+            "https://github.com/uutils/coreutils/releases/download/0.0.30/coreutils-0.0.30-aarch64-apple-darwin.tar.gz",
+            "coreutils-0.0.30-aarch64-apple-darwin/coreutils",
+            172632329479488326585315588014713080985,
+        )],
+    ),
+    (
+        "x86_64",
+        &[(
+            "https://github.com/romkatv/zsh-bin/releases/download/v6.1.1/zsh-5.8-darwin-x86_64.tar.gz",
+            "bin/zsh",
+            201395626963024338529738487514301415995,
+        ),
+        (
+            "https://github.com/uutils/coreutils/releases/download/0.0.30/coreutils-0.0.30-x86_64-apple-darwin.tar.gz",
+            "coreutils-0.0.30-x86_64-apple-darwin/coreutils",
+            63267804791507673069972942305764313070,
+        )],
+    )
+];
+
+fn fetch_macos_binaries() -> anyhow::Result<()> {
+    if env::var("CARGO_CFG_TARGET_OS").unwrap() != "macos" {
+        return Ok(());
+    };
+    let out_dir = current_dir()
+        .unwrap()
+        .join(Path::new(&std::env::var_os("OUT_DIR").unwrap()));
 
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-    let zsh_url = format!(
-        "https://github.com/romkatv/zsh-bin/releases/download/v6.1.1/zsh-5.8-darwin-{}.tar.gz",
-        if target_arch == "aarch64" {
-            "arm64"
-        } else {
-            &target_arch
+    let downloads = MACOS_BINARY_DOWNLOADS
+        .iter()
+        .find(|(arch, _)| *arch == target_arch)
+        .context(format!("Unsupported macOS arch: {}", target_arch))?
+        .1;
+    // let downloads = [(zsh_url.as_str(), "bin/zsh", zsh_hash)];
+    for (url, path_in_targz, expected_hash) in downloads.iter().copied() {
+        let filename = path_in_targz.split('/').rev().next().unwrap();
+        let download_path = out_dir.join(filename);
+        let hash_path = out_dir.join(format!("{}.hash", filename));
+        if let Ok(existing_file_data) = fs::read(&download_path) {
+            if xxh3_128(&existing_file_data) == expected_hash {
+                continue;
+            }
         }
-    );
-    let zsh_path = ensure_downloaded(&zsh_url);
+        let data = download_and_unpack_tar_gz(url, path_in_targz)?;
+        fs::write(&download_path, &data).context(format!(
+            "Saving {path_in_targz} in {url} to {}",
+            download_path.display()
+        ))?;
+        let actual_hash = xxh3_128(&data);
+        assert_eq!(
+            actual_hash, expected_hash,
+            "expected_hash of {} in {} needs to be updated",
+            path_in_targz, url
+        );
+        fs::write(&hash_path, format!("{:x}", actual_hash))?;
+    }
+    Ok(())
+    // let zsh_path = ensure_downloaded(&zsh_url);
 }
 
-fn main() {
-    fetch_macos_binaries();
+fn main() -> anyhow::Result<()> {
+    fetch_macos_binaries().context("Failed to fetch macOS binaries")?;
     build_interpose();
+    Ok(())
 }

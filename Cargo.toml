@@ -13,16 +13,29 @@ passfd = "0.1.6"
 tokio = { version = "1.44.2", features = ["net", "process", "io-util", "sync"]}
 which = "7.0.3"
 
-[target.'cfg(target_os= "linux")'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 tokio-seqpacket = "0.8.0"
 nix = { version = "0.29.0", features = ["fs", "process", "socket"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+rand = "0.9.1"
+phf = { version = "0.11.3", features = ["macros"] }
+# const_format = { version = "0.2.34", features = ["fmt"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+tempfile = "3.19.1"
+
 
 [dev-dependencies]
 tokio = { version = "1.44.2", features = ["rt", "macros"] }
 
-[target.'cfg(target_os= "macos")'.build-dependencies]
+
+[build-dependencies]
 attohttpc = "0.29.2"
-const-fnv1a-hash = "1.1.0"
+xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
+flate2 = "1.1.1"
+tar = "0.4.44"
+anyhow = "1.0.98"
 
 # [profile.release]
 # lto = true

@@ -1,9 +1,13 @@
+mod coreutils;
+mod fixture;
+
 use std::{ffi::OsStr, io, os::fd::OwnedFd};
 
 use futures_util::{stream::poll_fn, Stream, TryStream};
 use tokio::{net::UnixDatagram, process::Command};
 
 use crate::FileSystemAccess;
+
 
 pub struct Spy {
 
