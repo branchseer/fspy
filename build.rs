@@ -89,14 +89,30 @@ fn build_interpose() {
     let exit_status = dbg!(build_cmd).status().unwrap();
     assert_eq!(exit_status.code(), Some(0));
 
-    fs::copy(
+    let interpose_path = out_dir.join("fspy_interpose");
+    let interpose_hash_path = out_dir.join("fspy_interpose.hash");
+
+    let interpose_data = fs::read(
         interpose_target_dir
             .join(&interpose_target)
             .join(if is_release { "release" } else { "debug" })
             .join(output_name),
-        out_dir.join("fspy_interpose"),
     )
     .unwrap();
+    let interpose_hash = xxh3_128(&interpose_data);
+
+    fs::write(&interpose_path, interpose_data).unwrap();
+
+    fs::write(&interpose_hash_path, format!("{:x}", interpose_hash)).unwrap();
+
+    // fs::copy(
+    //     interpose_target_dir
+    //         .join(&interpose_target)
+    //         .join(if is_release { "release" } else { "debug" })
+    //         .join(output_name),
+    //     interpose_path,
+    // )
+    // .unwrap();
 }
 
 fn download(url: &str) -> anyhow::Result<impl Read + use<>> {

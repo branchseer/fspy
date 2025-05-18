@@ -1,26 +1,27 @@
 use std::{
     ffi::OsStr,
-    io::{self, BufRead, Read},
-    os::unix::ffi::OsStrExt,
+    os::unix::ffi::OsStrExt as _, path::Path,
 };
 
-use allocator_api2::{alloc::Allocator, boxed::Box, vec::Vec, vec};
+use allocator_api2::{alloc::Allocator, vec};
 
 
 #[derive(Debug, Clone, Copy)]
 pub struct Shebang<'a> {
-    pub interpreter: &'a OsStr,
+    pub interpreter: &'a Path,
     pub arguments: Arguments<'a>,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Arguments<'a>(&'a [u8]);
+pub struct Arguments<'a> {
+    arguments_buf: &'a [u8],
+    should_split: bool,
+}
+
 impl<'a> Arguments<'a> {
-    pub fn as_one(&self) -> &'a OsStr {
-        OsStr::from_bytes(self.0)
-    }
-    pub fn split(&self) -> impl DoubleEndedIterator<Item = &'a OsStr> + use<'a> {
-        self.0.split(|c| is_whitespace(*c)).filter_map(|arg| {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &'a OsStr> + use<'a> {
+        let should_split = self.should_split;
+        self.arguments_buf.split(move |c| should_split && is_whitespace(*c)).filter_map(|arg| {
             let arg = arg.trim_ascii();
             if arg.is_empty() {
                 None
@@ -35,28 +36,55 @@ fn is_whitespace(c: u8) -> bool {
     c == b' ' || c == b'\t'
 }
 
-// https://lwn.net/Articles/779997/
-// > The array used to hold the shebang line is defined to be 128 bytes in length
-// TODO: check linux/macOS' kernel source
-const PEEK_SIZE: usize = 128;
+pub trait FileSystem {
+    type Error;
+    fn peek_executable(&self, path: &Path, buf: &mut [u8]) -> Result<usize, Self::Error>;
+    fn format_error(&self) -> Self::Error;
+}
 
-pub fn parse_shebang<'a, A>(alloc: &'a A, mut reader: impl Read) -> io::Result<Option<Shebang<'a>>> where &'a A: Allocator {
+#[derive(Default, Debug)]
+pub struct NixFileSystem(());
+
+impl FileSystem for NixFileSystem {
+    type Error = nix::Error;
+
+    fn peek_executable(&self, path: &Path, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        use nix::{fcntl::{open, OFlag}, sys::stat::Mode};
+        let fd = open(path,  OFlag::O_RDONLY | OFlag::O_CLOEXEC, Mode::empty())?;
+        // TODO: check exec permission
+        let mut total_read_size = 0;
+        loop {
+            let read_size =  nix::unistd::read(&fd, &mut buf[total_read_size..])?;
+            if read_size == 0 {
+                break;
+            }
+            total_read_size += read_size;
+        }
+        Ok(total_read_size)
+    }
+    
+    fn format_error(&self) -> Self::Error {
+        // https://github.com/torvalds/linux/blob/5723cc3450bccf7f98f227b9723b5c9f6b3af1c5/fs/binfmt_script.c#L59-L80
+        nix::Error::ENOEXEC
+    }
+}
+
+pub fn parse_shebang<'a, A: Allocator + 'a, FS: FileSystem>(alloc: A, fs: &FS, path: &Path) -> Result<Option<Shebang<'a>>, FS::Error> {
+
+    // https://lwn.net/Articles/779997/
+    // > The array used to hold the shebang line is defined to be 128 bytes in length
+    // TODO: check linux/macOS' kernel source
+    const PEEK_SIZE: usize = 128;
+
     let buf = vec![in alloc; 0u8; PEEK_SIZE].leak::<'a>();
 
-    let mut total_read_size = 0;
-    loop {
-        let read_size = reader.read(&mut buf[total_read_size..])?;
-        if read_size == 0 {
-            break;
-        }
-        total_read_size += read_size;
-    }
+    let total_read_size = fs.peek_executable(path, buf)?;
     let Some(buf) = buf[..total_read_size].strip_prefix(b"#!") else {
         return Ok(None);
     };
-    // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=8099b047ecc4
+    
     let Some(buf) = buf.split(|ch| matches!(*ch, b'\n')).next() else {
-        return Err(io::Error::from_raw_os_error(libc::ENOEXEC));
+        return Err(fs.format_error());
     };
 
     let buf = buf.trim_ascii();
@@ -65,8 +93,12 @@ pub fn parse_shebang<'a, A>(alloc: &'a A, mut reader: impl Read) -> io::Result<O
     };
     let arguments_buf = buf[interpreter.len()..].trim_ascii_start();
     Ok(Some(Shebang {
-        interpreter: OsStr::from_bytes(interpreter),
-        arguments: Arguments(arguments_buf),
+        interpreter: Path::new(OsStr::from_bytes(interpreter)),
+        arguments: Arguments {
+            arguments_buf,
+            // TODO: linux doesn't split arguments in shebang
+            should_split: true,
+        },
     }))
 }
 

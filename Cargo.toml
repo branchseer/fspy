@@ -15,11 +15,16 @@ which = "7.0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tokio-seqpacket = "0.8.0"
-nix = { version = "0.29.0", features = ["fs", "process", "socket"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+allocator-api2 = { version = "0.2.21", default-features = false, features = ["alloc"]}
+
+nix = { version = "0.30.1", features =  ["fs", "process", "socket"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 rand = "0.9.1"
 phf = { version = "0.11.3", features = ["macros"] }
+bumpalo = { version = "3.17.0", features = ["allocator-api2"] }
 # const_format = { version = "0.2.34", features = ["fmt"] }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]

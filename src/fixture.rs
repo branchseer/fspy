@@ -36,7 +36,7 @@ impl Fixture {
     pub fn write_to(&self, dir: impl AsRef<Path>) -> io::Result<PathBuf> {
         const EXECUTABLE_MODE: u32 = 0o755;
         let dir = dir.as_ref();
-        let path = dir.join(format!("{}_{}", self.hash, self.name));
+        let path = dir.join(format!("{}_{}", self.name, self.hash));
 
         if fs::exists(&path)? {
             return Ok(path);

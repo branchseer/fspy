@@ -1,3 +1,5 @@
+#![feature(os_string_pathbuf_leak)]
+
 mod shebang;
 
 #[cfg(target_os = "macos")]

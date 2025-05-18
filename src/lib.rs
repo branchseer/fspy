@@ -1,5 +1,8 @@
 mod fixture;
 
+#[cfg(target_os = "macos")]
+mod shebang;
+
 use std::path::PathBuf;
 
 #[cfg(target_os = "linux")]
@@ -17,3 +20,5 @@ pub struct FileSystemAccess {
 }
 
 pub use os_impl::Spy;
+
+pub use os_impl::debug_example;
