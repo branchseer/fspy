@@ -68,7 +68,7 @@ impl<'a> ExecContext<'a> {
     }
 
     fn prepare_argv(&mut self) -> nix::Result<*const *const c_char> {
-        // parse_hashbang_recursive<DEFAULT_PEEK_SIZE, _, _, _>(Default::default(), reader, open, on_arg_reverse)
+        // parse_shebang_recursive<DEFAULT_PEEK_SIZE, _, _, _>(Default::default(), reader, open, on_arg_reverse)
         Ok(null())
     }
 }

@@ -5,7 +5,6 @@ mod bootstrap;
 mod consts;
 mod nul;
 mod exec;
-mod hashbang;
 mod params;
 mod signal;
 mod client;
@@ -119,11 +118,11 @@ pub fn main() -> ! {
     //     libc::getpid()
     // });
 
-    // let hashbang = {
+    // let shebang = {
     //     let program_file = File::open(program).unwrap();
     //     // TODO: check executable permission
     //     let buf_read = BufReader::new(program_file);
-    //     parse_hashbang_recursive(
+    //     parse_shebang_recursive(
     //         buf_read,
     //         |path| Ok(BufReader::new(File::open(path)?)),
     //         None,
@@ -138,14 +137,14 @@ pub fn main() -> ! {
         args.push(CString::new(arg.into_vec()).unwrap());
     }
     // let mut original_args = args_os();
-    // if let Some(hashbang) = hashbang {
-    //     let _ = original_args.next(); //  Ignoring original argv0. For hashbang scripts, argv0 should be the interpreter.
-    //     args = once(hashbang.interpreter.clone())
-    //         .chain(hashbang.arguments)
+    // if let Some(shebang) = shebang {
+    //     let _ = original_args.next(); //  Ignoring original argv0. For shebang scripts, argv0 should be the interpreter.
+    //     args = once(shebang.interpreter.clone())
+    //         .chain(shebang.arguments)
     //         .chain(once(program.into_owned()))
     //         .map(|arg| CString::new(arg.into_vec()).unwrap())
     //         .collect();
-    //     program = Cow::Owned(hashbang.interpreter);
+    //     program = Cow::Owned(shebang.interpreter);
     // }
 
 
