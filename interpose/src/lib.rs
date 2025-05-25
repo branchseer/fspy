@@ -1,4 +1,6 @@
 #![feature(os_string_pathbuf_leak)]
+#![feature(c_variadic)]
+
 
 mod shebang;
 

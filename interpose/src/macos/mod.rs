@@ -1,4 +1,4 @@
-use std::{convert::identity, ffi::{CStr, OsStr}, mem::zeroed, os::{raw::c_void, unix::ffi::OsStrExt}, path::Path, ptr::{null, null_mut}};
+use std::{convert::identity, ffi::{CStr, OsStr, VaList}, mem::zeroed, os::{raw::c_void, unix::ffi::OsStrExt}, path::Path, ptr::{null, null_mut}};
 
 use allocator_api2::vec::Vec;
 use bumpalo::Bump;
@@ -33,13 +33,15 @@ macro_rules! interpose {
 
 unsafe extern "C" {
     #[link_name = "open"]
-    fn libc_open(path: *const c_char, flags: c_int, mode: mode_t) -> c_int;
+    fn libc_open(path: *const c_char, flags: c_int, args: VaList) -> c_int;
 }
 
-interpose! {
-    libc_open =>
-    unsafe extern "C" fn(path_ptr: *const c_char, flags: c_int, mode: mode_t) -> c_int {
+const _: () = {
+
+    unsafe extern "C" fn open_interposed(path_ptr: *const c_char, flags: c_int, mut args: ...) -> c_int {
         let path = Path::new(OsStr::from_bytes(unsafe { CStr::from_ptr(path_ptr) }.to_bytes()));
+
+
 
         eprintln!("opening {:?}", path);
 
@@ -61,9 +63,22 @@ interpose! {
         // https://github.com/rust-lang/rust/issues/44930
         // https://github.com/thepowersgang/va_list-rs/
         // https://github.com/mstange/samply/blob/02a7b3771d038fc5c9226fd0a6842225c59f20c1/samply-mac-preload/src/lib.rs#L85-L93
-        unsafe { libc_open(path_ptr, flags, mode) }
+        if flags & libc::O_CREAT != 0 {
+            let mode: libc::c_int = unsafe { args.arg() };
+            // https://github.com/tailhook/openat/issues/21#issuecomment-535914957
+            unsafe { libc::open(path_ptr, flags, mode) }
+        } else {
+            unsafe { libc::open(path_ptr, flags) }
+        }
     }
-}
+
+
+    #[used]
+    #[allow(dead_code)]
+    #[allow(non_upper_case_globals)]
+    #[unsafe(link_section = "__DATA,__interpose")]
+    static mut _interpose_entry: InterposeEntry = InterposeEntry { _new: libc::open as *const c_void, _old: open_interposed as *const c_void };
+};
 
 interpose! {
     libc::execve => unsafe extern "C" fn(
@@ -96,16 +111,11 @@ interpose! {
         let bump = Bump::new();
         let mut raw_cmd = RawCommand { prog: path, argv: argv.cast(), envp: envp.cast() };
 
-        let orignal_cmd = raw_cmd;
-
-        // eprintln!("posix_spawn before {:?}", raw_cmd.into_command(&bump));
         if let Err(err) = unsafe { CLIENT.interpose_command(&bump, &mut raw_cmd) } {
-            raw_cmd = orignal_cmd;
-            // err.set();
-            // return -1;
+            return err as c_int;
         }
 
-        // eprintln!("posix_spawn after {:?}", raw_cmd.into_command(&bump));
+
         unsafe {
             libc::posix_spawn(pid, raw_cmd.prog, file_actions, attrp, raw_cmd.argv.cast(), raw_cmd.envp.cast())
         }
@@ -125,15 +135,13 @@ interpose!(
         let bump = Bump::new();
         let file = OsStr::from_bytes(unsafe { CStr::from_ptr(file.cast()) }.to_bytes());
         let Ok(file) = which::which(file) else {
-            nix::Error::ENOENT.set();
-            return -1;
+            return nix::Error::ENOENT as c_int;
         };
         let file = RawCommand::to_c_str(&bump, file.as_os_str());
 
         let mut raw_cmd =  RawCommand { prog: file, argv: argv.cast(), envp: envp.cast() };
         if let Err(err) = unsafe { CLIENT.interpose_command(&bump, &mut raw_cmd) } {
-            err.set();
-            return -1;
+            return err as c_int;
         }
         unsafe {
             libc::posix_spawnp(pid, raw_cmd.prog, file_actions, attrp, raw_cmd.argv.cast(), raw_cmd.envp.cast())
