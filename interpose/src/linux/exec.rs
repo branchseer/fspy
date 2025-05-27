@@ -3,7 +3,7 @@ use std::{iter::once, ptr::null};
 use arrayvec::ArrayVec;
 use libc::c_char;
 
-use crate::{abort::abort_with, client::Client, consts::ENVNAME_PROGRAM, is_env_reserved, nul::NulTerminated};
+use crate::{abort::abort_with, client::Client, consts::ENVNAME_PROGRAM, is_env_reserved, nul_term::NulTerminated};
 
 pub struct ExecContext<'a> {
     program: NulTerminated<'a, u8>,

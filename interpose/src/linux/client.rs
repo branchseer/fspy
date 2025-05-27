@@ -3,7 +3,7 @@ use std::{cell::UnsafeCell, fs::File, mem::MaybeUninit, os::fd::{FromRawFd as _,
 use lexical_core::parse;
 use socket2::Socket;
 
-use crate::{consts::{ENVNAME_EXECVE_HOST_PATH, ENVNAME_IPC_FD}, nul::{find_env, Env, NulTerminated}};
+use crate::{consts::{ENVNAME_EXECVE_HOST_PATH, ENVNAME_IPC_FD}, nul_term::{find_env, Env, NulTerminated}};
 
 pub struct Client<'a> {
     pub host_path_env: Env<'a>,

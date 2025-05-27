@@ -3,7 +3,7 @@
 
 mod bootstrap;
 mod consts;
-mod nul;
+mod nul_term;
 mod exec;
 mod params;
 mod signal;
@@ -23,7 +23,7 @@ use std::{
     },
 };
 
-use nul::{Env, ThinCStr, find_env, iter_environ};
+use nul_term::{Env, ThinCStr, find_env, iter_environ};
 use lexical_core::parse;
 
 use consts::{
