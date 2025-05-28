@@ -154,9 +154,9 @@ const MACOS_BINARY_DOWNLOADS: &[(&str, &[(&str, &str, u128)])] = &[
     (
         "aarch64",
         &[(
-            "https://github.com/romkatv/zsh-bin/releases/download/v6.1.1/zsh-5.8-darwin-arm64.tar.gz",
-            "bin/zsh",
-            43098371974591205243088456593081391946,
+            "https://github.com/reubeno/brush/releases/download/brush-shell-v0.2.18/brush-aarch64-apple-darwin.tar.gz",
+            "brush",
+            231644371378838440703368570058960003177,
         ),
         (
             "https://github.com/uutils/coreutils/releases/download/0.0.30/coreutils-0.0.30-aarch64-apple-darwin.tar.gz",
@@ -167,9 +167,9 @@ const MACOS_BINARY_DOWNLOADS: &[(&str, &[(&str, &str, u128)])] = &[
     (
         "x86_64",
         &[(
-            "https://github.com/romkatv/zsh-bin/releases/download/v6.1.1/zsh-5.8-darwin-x86_64.tar.gz",
-            "bin/zsh",
-            201395626963024338529738487514301415995,
+            "https://github.com/reubeno/brush/releases/download/brush-shell-v0.2.18/brush-x86_64-apple-darwin.tar.gz",
+            "brush",
+            286203014616009968685843701528129413859,
         ),
         (
             "https://github.com/uutils/coreutils/releases/download/0.0.30/coreutils-0.0.30-x86_64-apple-darwin.tar.gz",
@@ -198,23 +198,22 @@ fn fetch_macos_binaries() -> anyhow::Result<()> {
         let filename = path_in_targz.split('/').rev().next().unwrap();
         let download_path = out_dir.join(filename);
         let hash_path = out_dir.join(format!("{}.hash", filename));
-        if let Ok(existing_file_data) = fs::read(&download_path) {
-            if xxh3_128(&existing_file_data) == expected_hash {
-                continue;
-            }
+
+        let file_exists = matches!(fs::read(&download_path), Ok(existing_file_data) if xxh3_128(&existing_file_data) == expected_hash);
+        if !file_exists {
+            let data = download_and_unpack_tar_gz(url, path_in_targz)?;
+            fs::write(&download_path, &data).context(format!(
+                "Saving {path_in_targz} in {url} to {}",
+                download_path.display()
+            ))?;
+            let actual_hash = xxh3_128(&data);
+            assert_eq!(
+                actual_hash, expected_hash,
+                "expected_hash of {} in {} needs to be updated",
+                path_in_targz, url
+            );
         }
-        let data = download_and_unpack_tar_gz(url, path_in_targz)?;
-        fs::write(&download_path, &data).context(format!(
-            "Saving {path_in_targz} in {url} to {}",
-            download_path.display()
-        ))?;
-        let actual_hash = xxh3_128(&data);
-        assert_eq!(
-            actual_hash, expected_hash,
-            "expected_hash of {} in {} needs to be updated",
-            path_in_targz, url
-        );
-        fs::write(&hash_path, format!("{:x}", actual_hash))?;
+        fs::write(&hash_path, format!("{:x}", expected_hash))?;
     }
     Ok(())
     // let zsh_path = ensure_downloaded(&zsh_url);

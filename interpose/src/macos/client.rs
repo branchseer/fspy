@@ -1,7 +1,9 @@
-use std::{convert::identity, env, ffi::{CStr, OsStr}, os::{fd::RawFd, unix::ffi::OsStrExt as _}, path::Path, ptr::null, sync::LazyLock};
+use std::{convert::identity, env, ffi::{CStr, OsStr}, os::{fd::{FromRawFd, RawFd}, unix::ffi::OsStrExt as _}, path::Path, ptr::null, sync::LazyLock};
 
 use allocator_api2::vec::Vec;
+use bstr::BStr;
 use bumpalo::Bump;
+use socket2::Socket;
 
 use super::command::{interpose_command, Command, Context};
 
@@ -85,7 +87,7 @@ impl RawCommand {
 
 pub struct Client {
     command_context: Context<'static>,
-    ipc_fd: RawFd,
+    ipc_socket: Socket,
 }
 
 impl Client {
@@ -97,14 +99,17 @@ impl Client {
         let command_context = Context {
             ipc_fd, interpose_cdylib, bash, coreutils
         };
-        let ipc_fd = lexical_core::parse::<RawFd>(ipc_fd.as_bytes()).unwrap();
-        Self { command_context, ipc_fd }
+        let ipc_fd = lexical_core::parse::<libc::c_int>(ipc_fd.as_bytes()).unwrap();
+        Self { command_context, ipc_socket: unsafe { Socket::from_raw_fd(ipc_fd) } }
     }
     pub unsafe fn interpose_command(&self, bump: &Bump, raw_command: &mut RawCommand) -> nix::Result<()> {
         let mut cmd = unsafe { raw_command.into_command(bump) };
         interpose_command(bump, &mut cmd, self.command_context)?;
         *raw_command = RawCommand::from_command(bump, &cmd);
         Ok(())
+    }
+    pub fn send(&self, path: &BStr, caller: &BStr) {
+        // self.ipc_socket.send(buf)
     }
 }
 

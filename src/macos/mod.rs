@@ -36,15 +36,12 @@ fn unset_fl_flag(fd: BorrowedFd<'_>, flag_to_remove: OFlag) -> io::Result<()> {
 }
 
 pub async fn debug_example() {
-
-
     let (receiver, sender) = UnixDatagram::pair().unwrap();
     let sender = sender.into_std().unwrap();
     sender.set_nonblocking(false).unwrap();
     let ipc_buf_size = getsockopt(&sender, SndBuf).unwrap();
 
-        let sender = Arc::new(OwnedFd::from(sender));
-
+    let sender = Arc::new(OwnedFd::from(sender));
 
     let ipc_fd = sender.as_raw_fd().to_string();
 
@@ -52,6 +49,7 @@ pub async fn debug_example() {
     let _ = create_dir(&fixture_dir);
 
     let coreutils = fixtures::COREUTILS_BINARY.write_to(&fixture_dir).unwrap();
+    let brush = fixtures::BRUSH_BINARY.write_to(&fixture_dir).unwrap();
     let interpose_cdylib = fixtures::INTERPOSE_CDYLIB.write_to(&fixture_dir).unwrap();
     dbg!(&interpose_cdylib);
   
@@ -60,6 +58,7 @@ pub async fn debug_example() {
     let mut args = Vec::new_in(&bump);
     args.push(npm.as_os_str());
     args.push(OsStr::from_bytes(b"start"));
+    // args.push(OsStr::from_bytes(b"lint"));
 
 
     let mut envs = Vec::new_in(&bump);
@@ -79,7 +78,7 @@ pub async fn debug_example() {
 
     let context = Context {
         ipc_fd: OsStr::from_bytes(ipc_fd.as_bytes()),
-        bash: Path::new(OsStr::from_bytes(b"/opt/homebrew/bin/bash")),
+        bash: brush.as_path(),
         coreutils: coreutils.as_path(),
         interpose_cdylib: interpose_cdylib.as_path(),
     };
