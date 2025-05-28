@@ -18,7 +18,6 @@ tokio-seqpacket = "0.8.0"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 allocator-api2 = { version = "0.2.21", default-features = false, features = ["alloc"]}
-
 nix = { version = "0.30.1", features =  ["fs", "process", "socket"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -32,7 +31,7 @@ tempfile = "3.19.1"
 
 
 [dev-dependencies]
-tokio = { version = "1.44.2", features = ["rt", "macros"] }
+tokio = { version = "1.44.2", features = ["rt-multi-thread", "macros"] }
 
 
 [build-dependencies]

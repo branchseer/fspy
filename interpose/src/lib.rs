@@ -3,6 +3,7 @@
 
 
 mod shebang;
+mod consts;
 
 #[cfg(target_os = "macos")]
 pub mod macos;

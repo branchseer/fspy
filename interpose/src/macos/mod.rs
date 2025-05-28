@@ -16,12 +16,12 @@ use client::{CLIENT, RawCommand};
 use interpose_macros::interpose_libc;
 use libc::{c_char, c_int};
 
+use crate::consts::AccessMode;
+
 unsafe extern "C" fn open(path_ptr: *const c_char, flags: c_int, mut args: ...) -> c_int {
     let path = BStr::new(unsafe { CStr::from_ptr(path_ptr) }.to_bytes());
-    eprintln!("opening {:?}", path);
-    let caller_path = BStr::new(caller_dli_fname!().unwrap_or(b""));
-    eprintln!("\t caller: {}", caller_path);
-
+    let caller = BStr::new(caller_dli_fname!().unwrap_or(b""));
+    // CLIENT.send(AccessMode::Read, path, caller);
     // https://github.com/rust-lang/rust/issues/44930
     // https://github.com/thepowersgang/va_list-rs/
     // https://github.com/mstange/samply/blob/02a7b3771d038fc5c9226fd0a6842225c59f20c1/samply-mac-preload/src/lib.rs#L85-L93
@@ -34,7 +34,7 @@ unsafe extern "C" fn open(path_ptr: *const c_char, flags: c_int, mut args: ...) 
         unsafe { libc::open(path_ptr, flags) }
     }
 }
-interpose_libc!(open);
+// interpose_libc!(open);
 
 unsafe extern "C" fn execve(
     prog: *const libc::c_char,

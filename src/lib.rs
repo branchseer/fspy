@@ -1,4 +1,5 @@
 mod fixture;
+mod consts;
 
 #[cfg(target_os = "macos")]
 mod shebang;

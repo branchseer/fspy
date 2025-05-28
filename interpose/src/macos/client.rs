@@ -1,9 +1,12 @@
-use std::{convert::identity, env, ffi::{CStr, OsStr}, os::{fd::{FromRawFd, RawFd}, unix::ffi::OsStrExt as _}, path::Path, ptr::null, sync::LazyLock};
+use core::slice;
+use std::{convert::identity, env, ffi::{CStr, OsStr}, io::IoSlice, os::{fd::{FromRawFd, RawFd}, unix::ffi::OsStrExt as _}, path::Path, ptr::null, sync::LazyLock};
 
 use allocator_api2::vec::Vec;
 use bstr::BStr;
 use bumpalo::Bump;
 use socket2::Socket;
+
+use crate::consts::AccessMode;
 
 use super::command::{interpose_command, Command, Context};
 
@@ -108,8 +111,13 @@ impl Client {
         *raw_command = RawCommand::from_command(bump, &cmd);
         Ok(())
     }
-    pub fn send(&self, path: &BStr, caller: &BStr) {
-        // self.ipc_socket.send(buf)
+    pub fn send(&self, access_mode: AccessMode, path: &BStr, caller: &BStr) {
+        self.ipc_socket.send_vectored(&[
+            IoSlice::new(slice::from_ref(&(access_mode as u8))),
+            IoSlice::new(&path),
+            IoSlice::new(b"\0"),
+            IoSlice::new(&caller),
+        ]).unwrap();
     }
 }
 
