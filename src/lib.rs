@@ -22,4 +22,4 @@ pub struct FileSystemAccess {
 
 pub use os_impl::Spy;
 
-pub use os_impl::debug_example;
+pub use os_impl::*;

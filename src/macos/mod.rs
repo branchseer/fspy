@@ -33,7 +33,7 @@ use nix::{
 
 use crate::FileSystemAccess;
 
-fn update_fd_flag(fd: BorrowedFd<'_>, f: impl FnOnce(&mut FdFlag)) -> io::Result<()> {
+pub fn update_fd_flag(fd: BorrowedFd<'_>, f: impl FnOnce(&mut FdFlag)) -> io::Result<()> {
     fcntl(
         fd,
         FcntlArg::F_SETFD({
@@ -47,16 +47,7 @@ fn update_fd_flag(fd: BorrowedFd<'_>, f: impl FnOnce(&mut FdFlag)) -> io::Result
 }
 
 pub fn debug_example() {
-    // let 
     let (receiver, sender) = UnixDatagram::pair().unwrap();
-    // update_fd_flag(receiver.as_fd(), |flag| flag.insert(FdFlag::FD_CLOEXEC)).unwrap();
-    // update_fd_flag(sender.as_fd(), |flag| flag.insert(FdFlag::FD_CLOEXEC)).unwrap();
-
-    let ipc_buf_size = getsockopt(&sender, SndBuf).unwrap();
-
-    // let sender = OwnedFd::from(sender);
-
-    let ipc_fd = sender.as_raw_fd().to_string();
 
     let fixture_dir = temp_dir().join("fspy");
     let _ = create_dir(&fixture_dir);
@@ -65,58 +56,12 @@ pub fn debug_example() {
     let brush = fixtures::BRUSH_BINARY.write_to(&fixture_dir).unwrap();
     let interpose_cdylib = fixtures::INTERPOSE_CDYLIB.write_to(&fixture_dir).unwrap();
 
-    let bump = Bump::new();
-    let npm = which::which("echo").unwrap();
-    let mut args = Vec::new_in(&bump);
-    args.push(npm.as_os_str());
-    args.push(OsStr::from_bytes(b"start"));
-    // args.push(OsStr::from_bytes(b"lint"));
-
-    let mut envs = Vec::new_in(&bump);
-    for (name, value) in env::vars_os() {
-        let name = name.as_os_str().as_bytes();
-        let name = OsStr::from_bytes(SliceExt::to_vec_in(name, &bump).leak());
-        let value = value.as_os_str().as_bytes();
-        let value = OsStr::from_bytes(SliceExt::to_vec_in(value, &bump).leak());
-        envs.push((name, value));
-    }
-    let mut cmd = command::Command::<'_, &Bump> {
-        program: npm.as_path(),
-        args,
-        envs,
-    };
-
-    let context = Context {
-        ipc_fd: OsStr::from_bytes(ipc_fd.as_bytes()),
-        bash: brush.as_path(),
-        coreutils: coreutils.as_path(),
-        interpose_cdylib: interpose_cdylib.as_path(),
-    };
-
-    command::interpose_command(&bump, &mut cmd, context).unwrap();
-
-    // dbg!(&cmd);
-
-    let mut std_cmd = Command::new(cmd.program);
-    std_cmd
-        .arg0(cmd.args[0])
-        .args(cmd.args.iter().skip(1))
-        .env_clear()
-        .envs(cmd.envs);
+    let mut std_cmd = Command::new("echo");
 
     std_cmd.current_dir("/Users/patr0nus/code/hello_node");
 
-    // unsafe {
-    //     std_cmd.pre_exec(move || {
-    //         update_fd_flag(sender.as_fd(), |flag| flag.remove(FdFlag::FD_CLOEXEC))?;
-    //         // let _ = ManuallyDrop::new(sender);
-    //         Ok(())
-    //     })
-    // };
-
-    // drop(sender);
     let recv_loop = spawn(move || {
-        let mut recv_buf = vec![0u8; ipc_buf_size];
+        let mut recv_buf = vec![0u8; 24];
         loop {
             println!("receving");
             let msg_size = receiver.recv(&mut recv_buf)?;
