@@ -1,14 +1,31 @@
 use core::slice;
-use std::{convert::identity, env, ffi::{CStr, OsStr}, io::IoSlice, os::{fd::{FromRawFd, RawFd}, unix::ffi::OsStrExt as _}, path::Path, ptr::null, sync::LazyLock};
+use std::{
+    convert::identity,
+    env,
+    ffi::{CStr, OsStr},
+    io::{IoSlice, PipeWriter},
+    os::{
+        fd::{FromRawFd, OwnedFd, RawFd},
+        unix::{ffi::OsStrExt as _, net::UnixDatagram},
+    },
+    path::Path,
+    ptr::null,
+    sync::LazyLock,
+};
 
 use allocator_api2::vec::Vec;
+use arrayvec::ArrayVec;
+use bincode::config;
 use bstr::BStr;
 use bumpalo::Bump;
-use socket2::Socket;
+use libc::PIPE_BUF;
+use nix::fcntl::FdFlag;
+use smallvec::SmallVec;
+use socket2::{Domain, SockAddr, Socket, Type};
 
-use crate::consts::AccessMode;
+use crate::consts::{AccessMode, IpcMessage};
 
-use super::command::{interpose_command, Command, Context};
+use super::command::{Command, Context, interpose_command};
 
 #[derive(Clone, Copy)]
 pub struct RawCommand {
@@ -18,7 +35,11 @@ pub struct RawCommand {
 }
 
 impl RawCommand {
-    unsafe fn collect_c_str_array<'a, T>(bump: &'a Bump, strs: *const *const libc::c_char, mut map_fn: impl FnMut(&'a OsStr) -> T) -> Vec<T, &'a Bump> {
+    unsafe fn collect_c_str_array<'a, T>(
+        bump: &'a Bump,
+        strs: *const *const libc::c_char,
+        mut map_fn: impl FnMut(&'a OsStr) -> T,
+    ) -> Vec<T, &'a Bump> {
         let mut count = 0usize;
         let mut cur_str = strs;
         while !(unsafe { *cur_str }).is_null() {
@@ -26,11 +47,12 @@ impl RawCommand {
             cur_str = unsafe { cur_str.add(1) };
         }
 
-        
         let mut str_vec = Vec::<T, &'a Bump>::with_capacity_in(count, bump);
         for i in 0..count {
             let cur_str = unsafe { strs.add(i) };
-            str_vec.push(map_fn(OsStr::from_bytes(unsafe { CStr::from_ptr(*cur_str) }.to_bytes())));
+            str_vec.push(map_fn(OsStr::from_bytes(
+                unsafe { CStr::from_ptr(*cur_str) }.to_bytes(),
+            )));
         }
         str_vec
     }
@@ -40,9 +62,13 @@ impl RawCommand {
         c_str.extend_from_slice(s);
         c_str.push(0);
         c_str.leak().as_ptr().cast()
-     }
-    fn to_c_str_array<'a>(bump: &'a Bump, strs: impl ExactSizeIterator<Item = &'a OsStr>) -> *const *const libc::c_char {
-        let mut str_vec = Vec::<*const libc::c_char, &'a Bump>::with_capacity_in(strs.len() + 1, bump);
+    }
+    fn to_c_str_array<'a>(
+        bump: &'a Bump,
+        strs: impl ExactSizeIterator<Item = &'a OsStr>,
+    ) -> *const *const libc::c_char {
+        let mut str_vec =
+            Vec::<*const libc::c_char, &'a Bump>::with_capacity_in(strs.len() + 1, bump);
         for s in strs {
             str_vec.push(Self::to_c_str(bump, s));
         }
@@ -51,73 +77,114 @@ impl RawCommand {
     }
 
     pub unsafe fn into_command<'a>(self, bump: &'a Bump) -> Command<'a, &'a Bump> {
-        let program = Path::new(OsStr::from_bytes(unsafe { CStr::from_ptr(self.prog) }.to_bytes()));
+        let program = Path::new(OsStr::from_bytes(
+            unsafe { CStr::from_ptr(self.prog) }.to_bytes(),
+        ));
 
         let args = unsafe { Self::collect_c_str_array(bump, self.argv, identity) };
 
-        let envs = unsafe { Self::collect_c_str_array(bump, self.envp, |env| {
-            let env = env.as_bytes();
-            let mut key: &[u8] = env;
-            let mut value: &[u8] = b"";
-            if let Some(eq_pos) = env.iter().position(|b| *b == b'=') {
-                key = &env[..eq_pos];
-                value = &env[(eq_pos + 1)..];
-            }
-            (OsStr::from_bytes(key), OsStr::from_bytes(value))
-        }) };
+        let envs = unsafe {
+            Self::collect_c_str_array(bump, self.envp, |env| {
+                let env = env.as_bytes();
+                let mut key: &[u8] = env;
+                let mut value: &[u8] = b"";
+                if let Some(eq_pos) = env.iter().position(|b| *b == b'=') {
+                    key = &env[..eq_pos];
+                    value = &env[(eq_pos + 1)..];
+                }
+                (OsStr::from_bytes(key), OsStr::from_bytes(value))
+            })
+        };
 
         Command {
-            program, args, envs
+            program,
+            args,
+            envs,
         }
     }
     fn from_command<'a>(bump: &'a Bump, cmd: &Command<'a, &'a Bump>) -> Self {
         RawCommand {
             prog: Self::to_c_str(bump, cmd.program.as_os_str()),
             argv: Self::to_c_str_array(bump, cmd.args.iter().copied()),
-            envp: Self::to_c_str_array(bump, cmd.envs.iter().copied().map(|(name, value)| {
-                let name = name.as_bytes();
-                let value = value.as_bytes();
-                let mut env = Vec::<u8, &'a Bump>::with_capacity_in(name.len() + 1 + value.len() + 1, bump);
-                env.extend_from_slice(name);
-                env.push(b'=');
-                env.extend_from_slice(value);
-                env.push(0);
-                OsStr::from_bytes(env.leak())
-            }))
+            envp: Self::to_c_str_array(
+                bump,
+                cmd.envs.iter().copied().map(|(name, value)| {
+                    let name = name.as_bytes();
+                    let value = value.as_bytes();
+                    let mut env = Vec::<u8, &'a Bump>::with_capacity_in(
+                        name.len() + 1 + value.len() + 1,
+                        bump,
+                    );
+                    env.extend_from_slice(name);
+                    env.push(b'=');
+                    env.extend_from_slice(value);
+                    env.push(0);
+                    OsStr::from_bytes(env.leak())
+                }),
+            ),
         }
     }
 }
 
 pub struct Client {
     command_context: Context<'static>,
-    ipc_socket: Socket,
+    ipc_fd: Socket,
 }
 
 impl Client {
     fn from_env() -> Self {
-        let ipc_fd = env::var_os("FSPY_IPC_FD").unwrap().leak();
+        let ipc: &'static OsStr = env::var_os("FSPY_IPC_FD").unwrap().leak();
         let interpose_cdylib = Path::new(env::var_os("DYLD_INSERT_LIBRARIES").unwrap().leak());
         let bash = Path::new(env::var_os("FSPY_BASH").unwrap().leak());
         let coreutils = Path::new(env::var_os("FSPY_COREUTILS").unwrap().leak());
         let command_context = Context {
-            ipc_fd, interpose_cdylib, bash, coreutils
+            ipc_fd: ipc,
+            interpose_cdylib,
+            bash,
+            coreutils,
         };
-        let ipc_fd = lexical_core::parse::<libc::c_int>(ipc_fd.as_bytes()).unwrap();
-        Self { command_context, ipc_socket: unsafe { Socket::from_raw_fd(ipc_fd) } }
+        let ipc_fd = Socket::new(Domain::UNIX, Type::DGRAM, None).unwrap();
+        ipc_fd.connect(&SockAddr::unix(ipc).unwrap()).unwrap();
+
+        Self {
+            command_context,
+            ipc_fd,
+        }
     }
-    pub unsafe fn interpose_command(&self, bump: &Bump, raw_command: &mut RawCommand) -> nix::Result<()> {
+    pub unsafe fn interpose_command(
+        &self,
+        bump: &Bump,
+        raw_command: &mut RawCommand,
+    ) -> nix::Result<()> {
         let mut cmd = unsafe { raw_command.into_command(bump) };
         interpose_command(bump, &mut cmd, self.command_context)?;
         *raw_command = RawCommand::from_command(bump, &cmd);
         Ok(())
     }
     pub fn send(&self, access_mode: AccessMode, path: &BStr, caller: &BStr) {
-        self.ipc_socket.send_vectored(&[
-            IoSlice::new(slice::from_ref(&(access_mode as u8))),
-            IoSlice::new(&path),
-            IoSlice::new(b"\0"),
-            IoSlice::new(&caller),
-        ]).unwrap();
+        let mut msg_buf = SmallVec::<[u8; 512]>::new();
+        // let msg_buf = &mut msg_buf;
+        // let len_size = size_of::<u16>();
+        // let mut send_buf = [0u8; PIPE_BUF];
+
+        let msg = IpcMessage {
+            access_mode,
+            path: &path,
+            caller: &caller,
+        };
+        let msg_size =
+            bincode::encode_into_std_write(msg, &mut msg_buf, config::standard()).unwrap();
+
+        // send_buf[..len_size].copy_from_slice(&u16::try_from(msg_size).unwrap().to_be_bytes());
+        if let Err(err) = self.ipc_fd.send(&msg_buf[..msg_size]) {
+            eprintln!("write err: {:?}", err);
+        }
+
+        // let send_buf =  &send_buf[..(len_size + msg_size)];
+        // match nix::unistd::write(&self.ipc_fd, send_buf) {
+        //     Ok(size) => assert_eq!(size, send_buf.len()),
+        //     
+        // }
     }
 }
 

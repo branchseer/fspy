@@ -159,9 +159,9 @@ const MACOS_BINARY_DOWNLOADS: &[(&str, &[(&str, &str, u128)])] = &[
             231644371378838440703368570058960003177,
         ),
         (
-            "https://github.com/uutils/coreutils/releases/download/0.0.30/coreutils-0.0.30-aarch64-apple-darwin.tar.gz",
-            "coreutils-0.0.30-aarch64-apple-darwin/coreutils",
-            172632329479488326585315588014713080985,
+            "https://github.com/uutils/coreutils/releases/download/0.1.0/coreutils-0.1.0-aarch64-apple-darwin.tar.gz",
+            "coreutils-0.1.0-aarch64-apple-darwin/coreutils",
+            255656813290649147736009964224176006890,
         )],
     ),
     (
@@ -172,9 +172,9 @@ const MACOS_BINARY_DOWNLOADS: &[(&str, &[(&str, &str, u128)])] = &[
             286203014616009968685843701528129413859,
         ),
         (
-            "https://github.com/uutils/coreutils/releases/download/0.0.30/coreutils-0.0.30-x86_64-apple-darwin.tar.gz",
-            "coreutils-0.0.30-x86_64-apple-darwin/coreutils",
-            63267804791507673069972942305764313070,
+            "https://github.com/uutils/coreutils/releases/download/0.1.0/coreutils-0.1.0-x86_64-apple-darwin.tar.gz",
+            "coreutils-0.1.0-x86_64-apple-darwin/coreutils",
+            75344743234387926348628744659874018387,
         )],
     )
 ];
@@ -220,6 +220,7 @@ fn fetch_macos_binaries() -> anyhow::Result<()> {
 }
 
 fn main() -> anyhow::Result<()> {
+    println!("cargo:rerun-if-changed=build.rs");
     fetch_macos_binaries().context("Failed to fetch macOS binaries")?;
     build_interpose();
     Ok(())

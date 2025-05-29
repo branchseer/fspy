@@ -30,6 +30,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
+name = "asyncfd"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62bb70a835a32b63dba26dd5ab327cf4406bfeb3df42b42e02c0fa9d86c09d06"
+dependencies = [
+ "libc",
+ "tokio",
+]
+
+[[package]]
 name = "attohttpc"
 version = "0.29.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -69,6 +79,26 @@ name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
+name = "bincode"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36eaf5d7b090263e8150820482d5d93cd964a81e4019913c972f4edcc6edb740"
+dependencies = [
+ "bincode_derive",
+ "serde",
+ "unty",
+]
+
+[[package]]
+name = "bincode_derive"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
+dependencies = [
+ "virtue",
+]
 
 [[package]]
 name = "bitflags"
@@ -243,7 +273,9 @@ version = "0.1.0"
 dependencies = [
  "allocator-api2",
  "anyhow",
+ "asyncfd",
  "attohttpc",
+ "bincode",
  "bumpalo",
  "cfg-if",
  "flate2",
@@ -251,7 +283,6 @@ dependencies = [
  "libc",
  "linux-raw-sys",
  "nix",
- "passfd",
  "phf",
  "rand 0.9.1",
  "tar",
@@ -633,15 +664,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "passfd"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b332c50e4d07c0011fff51ea305374408319908908bc1dbed7a0ffaaf63a8151"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1018,6 +1040,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a5f39404a5da50712a4c1eecf25e90dd62b613502b7e925fd4e4d19b5c96512"
 
 [[package]]
+name = "unty"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
+
+[[package]]
 name = "url"
 version = "2.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1045,6 +1073,12 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+
+[[package]]
+name = "virtue"
+version = "0.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
 name = "wasi"

@@ -26,6 +26,7 @@ phf = { version = "0.11.3", features = ["macros"] }
 nix = { version = "0.30.1", features = ["fs"] }
 bumpalo = { version = "3.17.0", features = ["allocator-api2"] }
 va_list = "0.2.0"
+smallvec = { version = "1.15.0", features = [ "write" ] }
 
 [profile.dev]
 panic = "abort"
@@ -37,6 +38,8 @@ lto = true
 codegen-units = 1
 
 [dependencies]
+arrayvec = "0.7.6"
+bincode = "2.0.1"
 which = "7.0.3"
 
 

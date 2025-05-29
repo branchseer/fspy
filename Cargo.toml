@@ -4,12 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bincode = "2.0.1"
 cfg-if = "1.0.0"
 futures-util = "0.3.31"
 libc = "0.2.171"
 linux-raw-sys = { version = "0.9.4", features = ["ptrace"] }
+tempfile = "3.19.1"
 # async-send-fd = { version = "1.2.0", features = ["tokio"] }
-passfd = "0.1.6"
+# passfd = "0.1.6"
 tokio = { version = "1.44.2", features = ["net", "process", "io-util", "sync"]}
 which = "7.0.3"
 
@@ -18,7 +20,8 @@ tokio-seqpacket = "0.8.0"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 allocator-api2 = { version = "0.2.21", default-features = false, features = ["alloc"]}
-nix = { version = "0.30.1", features =  ["fs", "process", "socket"] }
+nix = { version = "0.30.1", features =  ["fs", "process", "socket", "feature"] }
+asyncfd = "0.1.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 rand = "0.9.1"
