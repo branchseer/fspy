@@ -159,7 +159,7 @@ pub fn spy(
 
     let context = Context {
         ipc_fd: ipc_fd_string.as_os_str(),
-        bash: brush.as_path(),
+        bash: Path::new("/Users/patr0nus/Downloads/oils-for-unix-0.29.0/_bin/cxx-opt-sh/oils-for-unix"), //Path::new("/opt/homebrew/bin/bash"),//brush.as_path(),
         coreutils: coreutils.as_path(),
         interpose_cdylib: interpose_cdylib.as_path(),
     };

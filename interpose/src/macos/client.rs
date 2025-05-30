@@ -175,16 +175,11 @@ impl Client {
         let msg_size =
             bincode::encode_into_std_write(msg, &mut msg_buf, config::standard()).unwrap();
 
-        // send_buf[..len_size].copy_from_slice(&u16::try_from(msg_size).unwrap().to_be_bytes());
-        if let Err(err) = self.ipc_fd.send(&msg_buf[..msg_size]) {
-            eprintln!("write err: {:?}", err);
+        
+        if let Err(_err) = self.ipc_fd.send_with_flags(&msg_buf[..msg_size], libc::MSG_WAITALL) {
+            // https://lists.freebsd.org/pipermail/freebsd-net/2006-April/010308.html
+            // eprintln!("write err: {:?}, data size: {}", err, msg_size);
         }
-
-        // let send_buf =  &send_buf[..(len_size + msg_size)];
-        // match nix::unistd::write(&self.ipc_fd, send_buf) {
-        //     Ok(size) => assert_eq!(size, send_buf.len()),
-        //     
-        // }
     }
 }
 

@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 bincode = "2.0.1"
 cfg-if = "1.0.0"
+derive-where = "1.4.0"
 event_iterator = "0.2.2"
 futures-util = "0.3.31"
 libc = "0.2.171"

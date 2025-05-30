@@ -22,7 +22,7 @@ pub static COREUTILS_FUNCTIONS: Set<&'static [u8]> = phf_set! {
     b"unexpand", b"uniq", b"unlink", b"uptime", b"users", b"vdir", b"wc", b"who", b"whoami", b"yes",
 };
 
-#[derive(Debug)]
+#[derive_where::derive_where(Debug)]
 pub struct Command<'a, A: Allocator> {
     pub program: &'a Path,
     pub args: Vec<&'a OsStr, A>,
@@ -55,6 +55,7 @@ fn ensure_env<'a, A: Allocator + 'a>(envs: &mut Vec<(&'a OsStr, &'a OsStr), A>, 
 }
 
 pub fn interpose_command<'a, A: Allocator + Clone + 'a>(alloc: A, command: &mut Command<'a, A>, fixtures: Context<'a>) -> nix::Result<()>  {
+    // eprintln!("interpose_command before: {:?}", command);
     if !(
         ensure_env(&mut command.envs, OsStr::from_bytes(b"DYLD_INSERT_LIBRARIES"), fixtures.interpose_cdylib.as_os_str()) &&
         ensure_env(&mut command.envs, OsStr::from_bytes(b"FSPY_BASH"), fixtures.bash.as_os_str()) &&
@@ -83,5 +84,6 @@ pub fn interpose_command<'a, A: Allocator + Clone + 'a>(alloc: A, command: &mut 
     } else if COREUTILS_FUNCTIONS.contains(file_name.as_bytes()) {
         command.program = fixtures.coreutils;
     }
+    //  eprintln!("interpose_command after: {:?}", command);
     Ok(())
 }
