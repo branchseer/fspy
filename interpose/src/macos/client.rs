@@ -23,7 +23,7 @@ use nix::fcntl::FdFlag;
 use smallvec::SmallVec;
 use socket2::{Domain, SockAddr, Socket, Type};
 
-use crate::consts::{AccessMode, IpcMessage};
+use crate::consts::{AccessMode, PathAccess};
 
 use super::command::{Command, Context, interpose_command};
 
@@ -167,7 +167,7 @@ impl Client {
         // let len_size = size_of::<u16>();
         // let mut send_buf = [0u8; PIPE_BUF];
 
-        let msg = IpcMessage {
+        let msg = PathAccess {
             access_mode,
             path: &path,
             caller: &caller,

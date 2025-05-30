@@ -23,3 +23,4 @@ pub struct FileSystemAccess {
 pub use os_impl::Spy;
 
 pub use os_impl::*;
+pub use consts::{ AccessMode, PathAccess };

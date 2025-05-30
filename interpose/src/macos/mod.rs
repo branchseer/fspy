@@ -4,11 +4,10 @@ mod command;
 mod interpose_macros;
 
 use std::{
-    ffi::{CStr, OsStr, c_void},
+    ffi::{CStr, OsStr},
     os::unix::ffi::OsStrExt,
 };
 
-use allocator_api2::vec::Vec;
 use bstr::BStr;
 use bumpalo::Bump;
 use caller::caller_dli_fname;
@@ -21,8 +20,20 @@ use crate::consts::AccessMode;
 unsafe extern "C" fn open(path_ptr: *const c_char, flags: c_int, mut args: ...) -> c_int {
     let path = BStr::new(unsafe { CStr::from_ptr(path_ptr) }.to_bytes());
     let caller = BStr::new(caller_dli_fname!().unwrap_or(b""));
-    CLIENT.send(AccessMode::Read, path, caller);
-   
+
+    let acc_mode = flags & libc::O_ACCMODE;
+    CLIENT.send(
+        if acc_mode == libc::O_RDWR {
+            AccessMode::ReadWrite
+        } else if acc_mode == libc::O_WRONLY {
+            AccessMode::Write
+        } else {
+            AccessMode::Read
+        },
+        path,
+        caller,
+    );
+
     // https://github.com/rust-lang/rust/issues/44930
     // https://github.com/thepowersgang/va_list-rs/
     // https://github.com/mstange/samply/blob/02a7b3771d038fc5c9226fd0a6842225c59f20c1/samply-mac-preload/src/lib.rs#L85-L93

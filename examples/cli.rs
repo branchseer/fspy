@@ -1,37 +1,75 @@
-use std::{collections::HashSet, env::args, ffi::OsString, io};
+use std::{
+    env::{self, args_os},
+    ffi::OsStr,
+    io,
+    pin::{Pin, pin},
+    process::ExitCode,
+};
 
-use fspy::Spy;
-use futures_util::{future::join, TryStreamExt};
+use fspy::AccessMode;
+use futures_util::future::{Either, select};
+use tokio::{
+    fs::File,
+    io::{AsyncWrite, stdout},
+};
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> io::Result<()> {
-    let spy = Spy::init()?;
+#[tokio::main]
+async fn main() -> io::Result<ExitCode> {
+    let mut args = args_os();
+    let _ = args.next();
+    assert_eq!(args.next().as_deref(), Some(OsStr::new("-o")));
+    let out_path = args.next().unwrap();
 
-    let mut args = args();
-    args.next().unwrap(); // argv0
     let program = args.next().unwrap();
-    let (mut command, mut stream) = spy.new_command(program, |command| {
-        command.args(args);
-        Ok(())
-    })?;
 
-    let status_fut = async move {
-        let status = command.status().await;
-        drop(command);
-        status
+    let (status_fut, mut acc_stream) = fspy::spy(
+        program,
+        Option::<&OsStr>::None,
+        Option::<&OsStr>::None,
+        args,
+        env::vars_os(),
+    )?;
+
+    let out_file: Pin<Box<dyn AsyncWrite>> = if out_path == "-" {
+        Box::pin(stdout())
+    } else {
+        Box::pin(File::create(out_path).await?)
     };
 
-    let stream_fut = async move {
-        let mut paths = HashSet::<OsString>::new();
-        while let Some(access) = stream.try_next().await? {
-            paths.insert(access.path.into_os_string());
+    let mut csv_writer = csv_async::AsyncWriter::from_writer(out_file);
+
+    let loop_stream = async move {
+        while let Some(acc) = acc_stream.next().await? {
+            csv_writer
+                .write_record(&[
+                    acc.path,
+                    match acc.access_mode {
+                        AccessMode::Read => b"r",
+                        AccessMode::ReadWrite => b"rw",
+                        AccessMode::Write => b"w",
+                    },
+                    acc.caller
+                ])
+                .await?;
+            acc_stream.bump_mut().reset();
         }
-        io::Result::Ok(paths.len())
+        csv_writer.flush().await?;
+        io::Result::Ok(())
     };
+    let status_fut = pin!(status_fut);
+    let loop_stream = pin!(loop_stream);
 
-    let (status, path_count) = join(status_fut, stream_fut).await;
-    let status = status?;
-    let path_count = path_count?;
-    println!("exit with: {:?}. path count: {}", status.code(), path_count);
-    Ok(())
+    match select(status_fut, loop_stream).await {
+        Either::Right(_) => unreachable!("access stream ended before process exits"),
+        Either::Left((status, _)) => {
+            let status = status?;
+            if let Some(code) = status.code()
+                && let Ok(code) = u8::try_from(code)
+            {
+                Ok(code.into())
+            } else {
+                Ok(255.into())
+            }
+        }
+    }
 }

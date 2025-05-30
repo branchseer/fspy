@@ -3,8 +3,9 @@ mod fixtures;
 
 use std::{
     env::{self, temp_dir},
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     fs::create_dir,
+    future::Future,
     io,
     mem::ManuallyDrop,
     net::Shutdown,
@@ -12,34 +13,37 @@ use std::{
         fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd},
         unix::{ffi::OsStrExt, process::CommandExt as _},
     },
-    path::Path,
+    path::{Path, PathBuf},
     pin::pin,
+    process::ExitStatus,
     sync::Arc,
+    task::Poll,
     thread::spawn,
 };
 
-use crate::consts::IpcMessage;
+use crate::consts::PathAccess;
 use allocator_api2::{
+    SliceExt,
     alloc::{Allocator, Global},
     vec::{self, Vec},
-    SliceExt,
 };
 use bincode::config;
 use bumpalo::Bump;
 use command::Context;
 use futures_util::{
+    Stream, TryStream,
     future::{join, select},
     stream::poll_fn,
-    Stream, TryStream,
 };
 use libc::PIPE_BUF;
 use nix::{
-    fcntl::{fcntl, FcntlArg, FdFlag, OFlag},
+    fcntl::{FcntlArg, FdFlag, OFlag, fcntl},
     sys::socket::{getsockopt, sockopt::SndBuf},
 };
+
 use tokio::{
-    io::{AsyncReadExt, BufReader},
-    net::{unix::pipe::pipe, UnixDatagram},
+    io::{AsyncReadExt, BufReader, ReadBuf},
+    net::{UnixDatagram, unix::pipe::pipe},
     process::Command,
 };
 
@@ -58,47 +62,99 @@ pub fn update_fd_flag(fd: BorrowedFd<'_>, f: impl FnOnce(&mut FdFlag)) -> io::Re
     Ok(())
 }
 
-pub async fn debug_example() {
-    // let (pipe_sender, pipe_receiver) = pipe().unwrap();
-    // let pipe_sender = pipe_sender.into_blocking_fd().unwrap();
+fn alloc_os_str<'a>(bump: &'a Bump, src: &OsStr) -> &'a OsStr {
+    OsStr::from_bytes(SliceExt::to_vec_in(src.as_bytes(), bump).leak())
+}
+
+pub struct PathAccessStream {
+    bump: Bump,
+    ipc_datagram: tempfile::NamedTempFile<UnixDatagram>,
+    acc_buf_size: usize,
+}
+
+impl PathAccessStream {
+    pub fn bump_mut(&mut self) -> &mut Bump {
+        &mut self.bump
+    }
+    pub async fn next(&mut self) -> io::Result<Option<PathAccess<'_>>> {
+        let mut msg_buf = Vec::<u8, _>::with_capacity_in(self.acc_buf_size, &self.bump);
+        let msg_size = self
+            .ipc_datagram
+            .as_file()
+            .recv_buf(&mut msg_buf.spare_capacity_mut())
+            .await?;
+        unsafe { msg_buf.set_len(msg_size) };
+        let msg_buf = msg_buf.leak();
+
+        let (acc, decode_size): (PathAccess, usize) =
+            match bincode::borrow_decode_from_slice(msg_buf, config::standard()) {
+                Err(decode_error) => {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, decode_error));
+                }
+                Ok(ok) => ok,
+            };
+        if decode_size != msg_size {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("decode_size({}) != msg_size({})", decode_size, msg_size),
+            ));
+        };
+        Ok(Some(acc))
+    }
+}
+
+pub fn spy(
+    program: impl AsRef<OsStr>,
+    cwd: Option<impl AsRef<OsStr>>,
+    arg0: Option<impl AsRef<OsStr>>,
+    args: impl IntoIterator<Item = impl AsRef<OsStr>>,
+    envs: impl IntoIterator<Item = (impl AsRef<OsStr>, impl AsRef<OsStr>)>,
+) -> io::Result<(
+    impl Future<Output = io::Result<ExitStatus>>,
+    PathAccessStream,
+)> {
     let tmp_dir = temp_dir().join("fspy");
     let _ = create_dir(&tmp_dir);
 
-    let temp_unix_datagram = tempfile::Builder::new()
-        .make_in(&tmp_dir, |path| {
-            dbg!(path);
-            UnixDatagram::bind(path)
-        })
-        .unwrap();
+    let ipc_datagram =
+        tempfile::Builder::new().make_in(&tmp_dir, |path| UnixDatagram::bind(path))?;
 
-    let send_buf_size = getsockopt(&temp_unix_datagram, SndBuf).unwrap();
+    let ipc_fd_string = ipc_datagram.path().to_path_buf();
 
-    let ipc_fd_string = temp_unix_datagram.path().to_path_buf();
+    let acc_buf_size = getsockopt(ipc_datagram.as_file(), SndBuf).unwrap();
 
     let coreutils = fixtures::COREUTILS_BINARY.write_to(&tmp_dir).unwrap();
     let brush = fixtures::BRUSH_BINARY.write_to(&tmp_dir).unwrap();
     let interpose_cdylib = fixtures::INTERPOSE_CDYLIB.write_to(&tmp_dir).unwrap();
 
-    let bump = Bump::new();
-    let npm = which::which("npm").unwrap();
-    let mut args = Vec::new_in(&bump);
-    args.push(npm.as_os_str());
-    args.push(OsStr::from_bytes(b"run"));
-    args.push(OsStr::from_bytes(b"start"));
+    let program = which::which(program).unwrap();
+    let mut bump = Bump::new();
 
-    let mut envs = Vec::new_in(&bump);
-    for (name, value) in env::vars_os() {
-        let name = name.as_os_str().as_bytes();
-        let name = OsStr::from_bytes(SliceExt::to_vec_in(name, &bump).leak());
-        let value = value.as_os_str().as_bytes();
-        let value = OsStr::from_bytes(SliceExt::to_vec_in(value, &bump).leak());
+    let mut arg_vec = Vec::new_in(&bump);
 
-        envs.push((name, value));
+    let arg0 = if let Some(arg0) = arg0.as_ref() {
+        Some(arg0.as_ref())
+    } else {
+        None
+    };
+
+    arg_vec.push(arg0.unwrap_or(program.as_os_str()));
+    arg_vec.extend(
+        args.into_iter()
+            .map(|arg| alloc_os_str(&bump, arg.as_ref())),
+    );
+
+    let mut env_vec = Vec::new_in(&bump);
+    for (name, value) in envs {
+        let name = alloc_os_str(&bump, name.as_ref());
+        // let name = OsStr::from_bytes(SliceExt::to_vec_in(name, &bump).leak());
+        let value = alloc_os_str(&bump, value.as_ref());
+        env_vec.push((name, value));
     }
     let mut cmd = command::Command::<'_, &Bump> {
-        program: npm.as_path(),
-        args,
-        envs,
+        program: program.as_path(),
+        args: arg_vec,
+        envs: env_vec,
     };
 
     let context = Context {
@@ -115,40 +171,27 @@ pub async fn debug_example() {
         .arg0(cmd.args[0])
         .args(&cmd.args[1..])
         .env_clear()
-        .envs(cmd.envs);
+        .envs(cmd.envs.iter().copied());
 
-    os_cmd.current_dir("/Users/patr0nus/code/hello_node");
+    if let Some(cwd) = cwd {
+        os_cmd.current_dir(cwd.as_ref());
+    }
 
-    let status = os_cmd.status();
+    let status_fut = os_cmd.status();
 
+    drop(cmd);
     drop(os_cmd);
 
-    let recv_loop = async move {
-        let mut recv_buf = vec![0u8; send_buf_size];
-        loop {
-            let msg_size = temp_unix_datagram.as_file().recv(&mut recv_buf).await?;
-            if msg_size == 0 {
-                return io::Result::Ok(());
-            }
-            let msg_buf = &mut recv_buf[..msg_size];
+    bump.reset();
 
-            let (msg, decode_size): (IpcMessage, usize) =
-                bincode::borrow_decode_from_slice(msg_buf, config::standard()).unwrap();
-            assert_eq!(decode_size, msg_size);
-
-            println!("{:?}", msg);
-        }
-    };
-
-    let recv_loop = pin!(recv_loop);
-    let status = pin!(status);
-
-    let res = select(recv_loop, status).await;
-    if let futures_util::future::Either::Right((status, _)) = res {
-        dbg!(status);
-    } else {
-        unreachable!()
-    };
+    Ok((
+        status_fut,
+        PathAccessStream {
+            bump,
+            ipc_datagram,
+            acc_buf_size,
+        },
+    ))
 }
 
 pub struct Spy {}
