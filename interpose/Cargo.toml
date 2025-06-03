@@ -40,8 +40,11 @@ codegen-units = 1
 [dependencies]
 arrayvec = "0.7.6"
 bincode = "2.0.1"
+bytemuck = { version = "1.23.0", features = ["extern_crate_alloc"] }
 derive-where = "1.4.0"
 path-dedot = "3.1.1"
+ref-cast = "1.0.24"
 which = "7.0.3"
+winsafe = { version = "0.0.24", features = ["kernel"] }
 
 

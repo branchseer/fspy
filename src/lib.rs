@@ -14,13 +14,16 @@ mod os_impl;
 #[path ="./macos/mod.rs"]
 mod os_impl;
 
+#[cfg(target_os = "windows")]
+#[path ="./windows/mod.rs"]
+mod os_impl;
+
 mod command_builder;
 
 pub struct FileSystemAccess {
     pub path: PathBuf
 }
 
-pub use os_impl::Spy;
-
 pub use os_impl::*;
+
 pub use consts::{ AccessMode, PathAccess };

@@ -1,6 +1,6 @@
 use std::{
     env::{self, current_dir},
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     fs,
     io::Read,
     path::Path,
@@ -12,12 +12,14 @@ use xxhash_rust::xxh3::xxh3_128;
 
 fn command_with_clean_env(program: impl AsRef<OsStr>) -> Command {
     let mut command = Command::new(program);
+    let mut envs = env::vars_os().collect::<Vec<(OsString, OsString)>>();
+    envs.retain(|(name, _)| if let Some(name_str) = name.to_str() {
+        !(name_str.starts_with("CARGO_") || name_str.starts_with("cargo_"))
+    } else {
+        true
+    });
     command
-        .env_clear()
-        .env("PATH", env::var_os("PATH").unwrap());
-    if let Some(rustup_home_env) = env::var_os("RUSTUP_HOME") {
-        command.env("RUSTUP_HOME", rustup_home_env);
-    }
+        .env_clear().envs(envs);
     command
 }
 
@@ -60,7 +62,12 @@ fn build_interpose() {
                 "--lib",
                 "libfspy_interpose.dylib",
             ),
-            "windows" => todo!(),
+            "windows" => (
+                // TODO: try gnullvm for cross-compiling
+                format!("{}-pc-windows-msvc", &target_arch),
+                "--lib",
+                "fspy_interpose.dll"
+            ),
             other => panic!("Unsuppported target os: {}", other),
         };
 
