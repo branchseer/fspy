@@ -210,6 +210,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "detours-sys2"
+version = "0.2.0"
+source = "git+https://github.com/Berrysoft/detours/#c9bc2ad6e9cd8f5f7b74cfa65365d61ecc45203f"
+dependencies = [
+ "cc",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -329,6 +338,7 @@ dependencies = [
  "cfg-if",
  "csv-async",
  "derive-where",
+ "detours-sys2",
  "event_iterator",
  "flate2",
  "futures-util",
