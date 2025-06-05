@@ -22,7 +22,7 @@ pub fn spawn(mut command: Command) -> io::Result<Child> {
     let tmp_dir = temp_dir().join("fspy");
     let _ = create_dir(&tmp_dir);
     let interpose_cdylib = INTERPOSE_CDYLIB.write_to(&tmp_dir, ".dll").unwrap();
-    // dbg!(&interpose_cdylib);
+
     let interpose_cdylib = interpose_cdylib
         .as_os_str()
         .encode_wide()
