@@ -28,6 +28,11 @@ bumpalo = { version = "3.17.0", features = ["allocator-api2"] }
 va_list = "0.2.0"
 smallvec = { version = "1.15.0", features = [ "write" ] }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59.0", features = ["Win32_Foundation"] }
+winsafe = { version = "0.0.24", features = ["kernel"] }
+ms-detours = "4.0.5"
+
 [profile.dev]
 panic = "abort"
 
@@ -45,6 +50,3 @@ derive-where = "1.4.0"
 path-dedot = "3.1.1"
 ref-cast = "1.0.24"
 which = "7.0.3"
-winsafe = { version = "0.0.24", features = ["kernel"] }
-
-

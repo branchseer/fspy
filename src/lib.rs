@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "windows", feature(windows_process_extensions_main_thread_handle))]
+
 mod fixture;
 mod consts;
 

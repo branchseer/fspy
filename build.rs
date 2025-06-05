@@ -71,12 +71,12 @@ fn build_interpose() {
             other => panic!("Unsuppported target os: {}", other),
         };
 
-    let rustup_exit_status = command_with_clean_env("rustup")
-        .current_dir(&interpose_path)
-        .args(["target", "add", &interpose_target])
-        .status()
-        .unwrap();
-    assert_eq!(rustup_exit_status.code(), Some(0));
+    // let rustup_exit_status = command_with_clean_env("rustup")
+    //     .current_dir(&interpose_path)
+    //     .args(["target", "add", &interpose_target])
+    //     .status()
+    //     .unwrap();
+    // assert_eq!(rustup_exit_status.code(), Some(0));
 
     if interpose_target == "aarch64-unknown-linux-musl" {
         build_cmd.args([

@@ -32,10 +32,10 @@ impl Fixture {
             hash
         }
     }
-    pub fn write_to(&self, dir: impl AsRef<Path>) -> io::Result<PathBuf> {
+    pub fn write_to(&self, dir: impl AsRef<Path>, suffix: &str) -> io::Result<PathBuf> {
 
         let dir = dir.as_ref();
-        let path = dir.join(format!("{}_{}", self.name, self.hash));
+        let path = dir.join(format!("{}_{}{}", self.name, self.hash, suffix));
 
         if fs::exists(&path)? {
             return Ok(path);
