@@ -5,7 +5,12 @@ use tokio::process::Command;
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let mut cmd = Command::new("cmd");
-    cmd.args(["/k", "cmd", "/k", "echo", "hello"]);
+    cmd.args([
+        "/k",
+         "cmd", "/k",
+         "cmd", "/k",
+        "echo", "hello",
+    ]);
     cmd.stdin(Stdio::inherit());
     cmd.stdout(Stdio::inherit());
     cmd.stderr(Stdio::inherit());
