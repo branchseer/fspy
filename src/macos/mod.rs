@@ -123,9 +123,9 @@ pub fn spy(
 
     let acc_buf_size = getsockopt(ipc_datagram.as_file(), SndBuf).unwrap();
 
-    let coreutils = fixtures::COREUTILS_BINARY.write_to(&tmp_dir).unwrap();
-    let brush = fixtures::BRUSH_BINARY.write_to(&tmp_dir).unwrap();
-    let interpose_cdylib = fixtures::INTERPOSE_CDYLIB.write_to(&tmp_dir).unwrap();
+    let coreutils = fixtures::COREUTILS_BINARY.write_to(&tmp_dir, "").unwrap();
+    let brush = fixtures::BRUSH_BINARY.write_to(&tmp_dir, "").unwrap();
+    let interpose_cdylib = fixtures::INTERPOSE_CDYLIB.write_to(&tmp_dir, ".dylib").unwrap();
 
     let program = which::which(program).unwrap();
     let mut bump = Bump::new();
