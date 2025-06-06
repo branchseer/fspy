@@ -3,6 +3,9 @@ name = "fspy_interpose"
 edition = "2024"
 publish = false
 
+[workspace]
+members = ["shared"]
+
 [lib]
 crate-type = ["cdylib"]
 
