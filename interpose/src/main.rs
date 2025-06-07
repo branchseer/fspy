@@ -2,7 +2,7 @@
 // For non-linux targets, mark the bin target as `no_main` so that
 // `cargo check` and rust-analyser won't complain, whereas build can
 // fail with "_main not found" error
-#![cfg_attr(not(target_os = "linux"), no_main)]
+#![cfg_attr(all(not(target_os = "linux"), not(test)), no_main)]
 
 #[cfg(target_os = "linux")]
 mod linux_execve_host;

@@ -1,5 +1,4 @@
-#![cfg_attr(target_os = "macos", feature(os_string_pathbuf_leak))]
-#![cfg_attr(target_os = "macos", feature(c_variadic))]
+#![cfg_attr(target_os = "macos", feature(os_string_pathbuf_leak, c_variadic))]
 
 
 #[cfg(unix)]
