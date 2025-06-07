@@ -195,7 +195,7 @@ dependencies = [
  "userland-execve",
  "va_list",
  "which",
- "windows-sys 0.59.0",
+ "winapi",
  "winsafe 0.0.24",
 ]
 
@@ -204,6 +204,8 @@ name = "fspy_shared"
 version = "0.0.0"
 dependencies = [
  "bstr",
+ "ms-detours",
+ "winapi",
 ]
 
 [[package]]

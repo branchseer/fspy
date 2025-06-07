@@ -32,9 +32,10 @@ va_list = "0.2.0"
 smallvec = { version = "1.15.0", features = [ "write" ] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_Security", "Win32_System_LibraryLoader"] }
+# windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_Security", "Win32_System_LibraryLoader"] }
 winsafe = { version = "0.0.24", features = ["kernel"] }
 ms-detours = "4.0.5"
+winapi = { version = "0.3.9", features = ["winerror"] }
 
 [profile.dev]
 panic = "abort"
