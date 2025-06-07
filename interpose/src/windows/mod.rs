@@ -2,8 +2,11 @@ use std::{
     borrow::Borrow as _,
     cell::{SyncUnsafeCell, UnsafeCell},
     ffi::{CStr, c_char, c_long},
+    fs::OpenOptions,
+    io::Write,
     mem::MaybeUninit,
-    os::raw::c_void,
+    os::{raw::c_void, windows::io::AsRawHandle},
+    ptr::null_mut,
     slice,
     str::from_utf8,
 };
@@ -24,11 +27,12 @@ use winapi::{
     um::{
         libloaderapi::GetModuleFileNameA,
         minwinbase::LPSECURITY_ATTRIBUTES,
+        namedpipeapi::SetNamedPipeHandleState,
         processthreadsapi::{
             CreateProcessW as Real_CreateProcessW, GetCurrentThread, LPPROCESS_INFORMATION,
             LPSTARTUPINFOW, ResumeThread,
         },
-        winbase::CREATE_SUSPENDED,
+        winbase::{CREATE_SUSPENDED, PIPE_READMODE_MESSAGE},
         winnt::{self, LPCWSTR, LPWSTR},
     },
 };
@@ -173,14 +177,24 @@ fn dll_main(hinstance: HINSTANCE, reason: u32) -> winsafe::SysResult<()> {
         return Ok(());
     }
 
-    let mut size: DWORD = 0;
-    let ipc_ptr = unsafe { DetourFindPayloadEx(&FSSPY_IPC_PAYLOAD, &mut size).cast::<u8>() };
-    let ipc = unsafe { slice::from_raw_parts(ipc_ptr, size.try_into().unwrap()) };
-    unsafe { *FSPY_IPC.get() = MaybeUninit::new(ipc) };
-
     let cpw = CPW.0.get() as _;
     match reason {
         winnt::DLL_PROCESS_ATTACH => {
+            ck(unsafe { DetourRestoreAfterWith() })?;
+
+            let mut size: DWORD = 0;
+            let ipc_ptr =
+                unsafe { DetourFindPayloadEx(&FSSPY_IPC_PAYLOAD, &mut size).cast::<u8>() };
+            let ipc = unsafe { slice::from_raw_parts(ipc_ptr, size.try_into().unwrap()) };
+            unsafe { *FSPY_IPC.get() = MaybeUninit::new(ipc) };
+
+            let mut ipc_pipe = OpenOptions::new()
+                .write(true)
+                .open(from_utf8(ipc).unwrap())
+                .unwrap();
+
+            ipc_pipe.write(b"hello").unwrap();
+
             unsafe {
                 GetModuleFileNameA(
                     hinstance,
@@ -194,7 +208,6 @@ fn dll_main(hinstance: HINSTANCE, reason: u32) -> winsafe::SysResult<()> {
                     MAX_PATH.try_into().unwrap(),
                 )
             };
-            ck(unsafe { DetourRestoreAfterWith() })?;
 
             ck_long(unsafe { DetourTransactionBegin() })?;
             ck_long(unsafe { DetourUpdateThread(GetCurrentThread().cast()) })?;

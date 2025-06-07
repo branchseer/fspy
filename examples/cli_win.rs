@@ -1,6 +1,8 @@
-use std::{io, process::Stdio};
+use std::{io, pin::pin, process::Stdio};
 
+use futures_util::future::{select, Either};
 use tokio::process::Command;
+
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
@@ -14,11 +16,19 @@ async fn main() -> io::Result<()> {
     cmd.stdin(Stdio::inherit());
     cmd.stdout(Stdio::inherit());
     cmd.stderr(Stdio::inherit());
-    let mut child = fspy::spawn(cmd)?;
+    let (child, fut) = fspy::spawn(cmd)?;
 
-    let output = child.wait_with_output().await?;
-    println!("{:?}", output.status.code());
-    dbg!(output);
+    let output_fut = child.wait_with_output();
 
+    let output_fut = pin!(output_fut);
+    let fut = pin!(fut);
+    match select(output_fut, fut).await {
+        Either::Left((output, _)) => {
+            dbg!(output);
+        },
+        Either::Right((res, _)) => {
+            dbg!(res);
+        },
+    }
     Ok(())
 }
