@@ -6,9 +6,9 @@ use tokio::process::Command;
 async fn main() -> io::Result<()> {
     let mut cmd = Command::new("cmd");
     cmd.args([
-        "/k",
-         "cmd", "/k",
-         "cmd", "/k",
+        "/c",
+         "cmd", "/c",
+         "cmd", "/c",
         "echo", "hello",
     ]);
     cmd.stdin(Stdio::inherit());

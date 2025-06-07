@@ -1,16 +1,19 @@
 use std::{
     borrow::Borrow as _,
-    cell::UnsafeCell,
+    cell::{SyncUnsafeCell, UnsafeCell},
     ffi::{CStr, c_char, c_long},
+    mem::MaybeUninit,
     os::raw::c_void,
+    slice,
     str::from_utf8,
 };
 
 use arrayvec::ArrayVec;
+use fspy_shared::windows::FSSPY_IPC_PAYLOAD;
 use ms_detours::{
-    DetourAttach, DetourCreateProcessWithDllExW, DetourCreateProcessWithDllsW, DetourDetach,
-    DetourFindPayloadEx, DetourIsHelperProcess, DetourRestoreAfterWith, DetourTransactionBegin,
-    DetourTransactionCommit, DetourUpdateThread,
+    DetourAttach, DetourCopyPayloadToProcess, DetourCreateProcessWithDllExW,
+    DetourCreateProcessWithDllsW, DetourDetach, DetourFindPayloadEx, DetourIsHelperProcess,
+    DetourRestoreAfterWith, DetourTransactionBegin, DetourTransactionCommit, DetourUpdateThread,
 };
 
 use winapi::{
@@ -23,8 +26,9 @@ use winapi::{
         minwinbase::LPSECURITY_ATTRIBUTES,
         processthreadsapi::{
             CreateProcessW as Real_CreateProcessW, GetCurrentThread, LPPROCESS_INFORMATION,
-            LPSTARTUPINFOW,
+            LPSTARTUPINFOW, ResumeThread,
         },
+        winbase::CREATE_SUSPENDED,
         winnt::{self, LPCWSTR, LPWSTR},
     },
 };
@@ -49,6 +53,9 @@ struct SyncCell<T>(UnsafeCell<T>);
 unsafe impl<T> Sync for SyncCell<T> {}
 
 static DLL_PATH: SyncCell<[u8; MAX_PATH]> = SyncCell(UnsafeCell::new([0; MAX_PATH]));
+
+static FSPY_IPC: SyncUnsafeCell<MaybeUninit<&'static [u8]>> =
+    SyncUnsafeCell::new(MaybeUninit::uninit());
 
 static CPW: SyncCell<
     unsafe extern "system" fn(
@@ -77,7 +84,56 @@ unsafe extern "system" fn CreateProcessW(
     lpStartupInfo: LPSTARTUPINFOW,
     lpProcessInformation: LPPROCESS_INFORMATION,
 ) -> BOOL {
-    eprintln!("CreateProcessW");
+    unsafe extern "system" fn CreateProcessWithPayloadW(
+        lpApplicationName: LPCWSTR,
+        lpCommandLine: LPWSTR,
+        lpProcessAttributes: LPSECURITY_ATTRIBUTES,
+        lpThreadAttributes: LPSECURITY_ATTRIBUTES,
+        bInheritHandles: BOOL,
+        dwCreationFlags: DWORD,
+        lpEnvironment: LPVOID,
+        lpCurrentDirectory: LPCWSTR,
+        lpStartupInfo: LPSTARTUPINFOW,
+        lpProcessInformation: LPPROCESS_INFORMATION,
+    ) -> BOOL {
+        let ret = unsafe {
+            (*CPW.0.get())(
+                lpApplicationName,
+                lpCommandLine,
+                lpProcessAttributes,
+                lpThreadAttributes,
+                bInheritHandles,
+                dwCreationFlags | CREATE_SUSPENDED,
+                lpEnvironment,
+                lpCurrentDirectory,
+                lpStartupInfo,
+                lpProcessInformation,
+            )
+        };
+        if ret == 0 {
+            return 0;
+        }
+        let ret = unsafe {
+            let ipc_payload = (*FSPY_IPC.get()).assume_init();
+            DetourCopyPayloadToProcess(
+                (*lpProcessInformation).hProcess,
+                &FSSPY_IPC_PAYLOAD,
+                ipc_payload.as_ptr().cast(),
+                ipc_payload.len().try_into().unwrap(),
+            )
+        };
+        if ret == 0 {
+            return 0;
+        }
+        if dwCreationFlags & CREATE_SUSPENDED == 0 {
+            let ret = unsafe { ResumeThread((*lpProcessInformation).hThread) };
+            if ret == -1i32 as DWORD {
+                return 0;
+            }
+        }
+        ret
+    }
+
     unsafe {
         DetourCreateProcessWithDllExW(
             lpApplicationName,
@@ -91,20 +147,8 @@ unsafe extern "system" fn CreateProcessW(
             lpStartupInfo,
             lpProcessInformation,
             (*DLL_PATH.0.get()).as_ptr().cast(),
-            Some(*CPW.0.get().cast()),
+            Some(CreateProcessWithPayloadW),
         )
-        // ;(*CPW.0.get())(
-        //     lpapplicationname,
-        //     lpcommandline,
-        //     lpprocessattributes,
-        //     lpthreadattributes,
-        //     binherithandles,
-        //     dwcreationflags,
-        //     lpenvironment,
-        //     lpcurrentdirectory,
-        //     lpstartupinfo,
-        //     lpprocessinformation,
-        // )
     }
 }
 
@@ -128,6 +172,11 @@ fn dll_main(hinstance: HINSTANCE, reason: u32) -> winsafe::SysResult<()> {
     if unsafe { DetourIsHelperProcess() } == TRUE {
         return Ok(());
     }
+
+    let mut size: DWORD = 0;
+    let ipc_ptr = unsafe { DetourFindPayloadEx(&FSSPY_IPC_PAYLOAD, &mut size).cast::<u8>() };
+    let ipc = unsafe { slice::from_raw_parts(ipc_ptr, size.try_into().unwrap()) };
+    unsafe { *FSPY_IPC.get() = MaybeUninit::new(ipc) };
 
     let cpw = CPW.0.get() as _;
     match reason {

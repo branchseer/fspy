@@ -7,11 +7,16 @@ use std::{
     str::from_utf8,
 };
 
-use ms_detours::DetourUpdateProcessWithDll;
+use fspy_shared::windows::FSSPY_IPC_PAYLOAD;
+use ms_detours::{DetourCopyPayloadToProcess, DetourUpdateProcessWithDll};
 use tokio::process::{Child, Command};
 // use detours_sys2::{DetourAttach,};
 
-use windows_sys::Win32::System::Threading::{CREATE_SUSPENDED, ResumeThread};
+use winapi::{
+    shared::minwindef::TRUE,
+    um::{processthreadsapi::ResumeThread, winbase::CREATE_SUSPENDED},
+};
+// use windows_sys::Win32::System::Threading::{CREATE_SUSPENDED, ResumeThread};
 use winsafe::co::{CP, WC};
 
 use crate::fixture::{Fixture, fixture};
@@ -39,16 +44,30 @@ pub fn spawn(mut command: Command) -> io::Result<Child> {
         let std_child = std_command.spawn()?;
 
         let mut interpose_cdylib = interpose_cdylib.as_ptr().cast::<c_char>();
-        let success = unsafe {
-            DetourUpdateProcessWithDll(std_child.as_raw_handle().cast(), &mut interpose_cdylib, 1)
-        };
+        let process_handle = std_child.as_raw_handle().cast::<winapi::ctypes::c_void>();
+        let success =
+            unsafe { DetourUpdateProcessWithDll(process_handle, &mut interpose_cdylib, 1) };
+        if success != TRUE {
+            return Err(io::Error::last_os_error());
+        }
 
-        if success == 0 {
+        let ipc_name = b"hello_ipc";
+
+        let success = unsafe {
+            DetourCopyPayloadToProcess(
+                process_handle,
+                &FSSPY_IPC_PAYLOAD,
+                ipc_name.as_ptr().cast(),
+                ipc_name.len().try_into().unwrap(),
+            )
+        };
+        if success != TRUE {
             return Err(io::Error::last_os_error());
         }
 
         let main_thread_handle = std_child.main_thread_handle();
-        let resume_thread_ret = unsafe { ResumeThread(main_thread_handle.as_raw_handle()) } as i32;
+        let resume_thread_ret =
+            unsafe { ResumeThread(main_thread_handle.as_raw_handle().cast()) } as i32;
 
         if resume_thread_ret == -1 {
             return Err(io::Error::last_os_error());

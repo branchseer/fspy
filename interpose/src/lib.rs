@@ -1,4 +1,5 @@
 #![cfg_attr(target_os = "macos", feature(os_string_pathbuf_leak, c_variadic))]
+#![feature(sync_unsafe_cell)]
 
 
 #[cfg(unix)]
