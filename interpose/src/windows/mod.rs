@@ -27,30 +27,14 @@ use winapi::{
     um::{
         libloaderapi::GetModuleFileNameA,
         minwinbase::LPSECURITY_ATTRIBUTES,
-        namedpipeapi::SetNamedPipeHandleState,
         processthreadsapi::{
             CreateProcessW as Real_CreateProcessW, GetCurrentThread, LPPROCESS_INFORMATION,
             LPSTARTUPINFOW, ResumeThread,
         },
-        winbase::{CREATE_SUSPENDED, PIPE_READMODE_MESSAGE},
+        winbase::{CREATE_SUSPENDED},
         winnt::{self, LPCWSTR, LPWSTR},
     },
 };
-// use windows_sys::{
-//     Win32::{
-//         Foundation::{BOOL, FALSE, HINSTANCE, NO_ERROR, TRUE},
-//         Security::SECURITY_ATTRIBUTES,
-//         System::{
-//             LibraryLoader::GetModuleFileNameA,
-//             SystemServices,
-//             Threading::{
-//                 CreateProcessW as Real_CreateProcessW, GetCurrentThread, PROCESS_CREATION_FLAGS,
-//                 PROCESS_INFORMATION, STARTUPINFOW,
-//             },
-//         },
-//     },
-//     core::PSTR,
-// };
 use winsafe::{GetLastError, SetLastError};
 
 struct SyncCell<T>(UnsafeCell<T>);

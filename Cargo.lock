@@ -414,7 +414,9 @@ dependencies = [
 name = "fspy_shared"
 version = "0.0.0"
 dependencies = [
+ "bincode",
  "bstr",
+ "bytemuck",
  "ms-detours",
  "winapi",
 ]
