@@ -78,7 +78,8 @@ unsafe extern "system" fn CreateProcessW(
     lpStartupInfo: LPSTARTUPINFOW,
     lpProcessInformation: LPPROCESS_INFORMATION,
 ) -> BOOL {
-    unsafe { global_client() }.send(PathAccess {
+    let client = unsafe { global_client() };
+    client.send(PathAccess {
         mode: AccessMode::Read,
         path: NativeStr::from_wide(unsafe { U16CStr::from_ptr_str(lpApplicationName) }.as_slice()),
     });
@@ -132,7 +133,6 @@ unsafe extern "system" fn CreateProcessW(
         ret
     }
 
-    let dll_path = unsafe { global_client() }.asni_dll_path();
     unsafe {
         DetourCreateProcessWithDllExW(
             lpApplicationName,
@@ -145,7 +145,7 @@ unsafe extern "system" fn CreateProcessW(
             lpCurrentDirectory,
             lpStartupInfo,
             lpProcessInformation,
-            dll_path.as_ptr().cast(),
+            client.asni_dll_path().as_ptr().cast(),
             Some(CreateProcessWithPayloadW),
         )
     }

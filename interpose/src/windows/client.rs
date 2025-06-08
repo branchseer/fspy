@@ -1,10 +1,9 @@
 use std::{
     cell::SyncUnsafeCell,
     ffi::CStr,
-    fs::{File, OpenOptions},
-    io::Write as _,
+    fs::OpenOptions,
     mem::MaybeUninit,
-    os::windows::io::{AsHandle, AsRawHandle, BorrowedHandle, OwnedHandle},
+    os::windows::io::{AsHandle, AsRawHandle, OwnedHandle},
     ptr::null_mut,
 };
 
@@ -23,7 +22,7 @@ pub struct Client<'a> {
     ipc_pipe: OwnedHandle,
 }
 
-fn write_message(pipe: &impl AsHandle, msg: &[u8]) {
+fn write_pipe_message(pipe: &impl AsHandle, msg: &[u8]) {
     let mut bytes_written: DWORD = 0;
     let bytes_len: DWORD = msg.len().try_into().unwrap();
     let ret = unsafe {
@@ -71,7 +70,7 @@ impl<'a> Client<'a> {
     pub fn send(&self, access: PathAccess<'_>) {
         let mut buf = SmallVec::<[u8; 256]>::new();
         encode_into_std_write(access, &mut buf, BINCODE_CONFIG).unwrap();
-        write_message(&self.ipc_pipe, buf.as_slice());
+        write_pipe_message(&self.ipc_pipe, buf.as_slice());
     }
     pub fn payload_bytes(&self) -> &'a [u8] {
         self.payload_bytes
