@@ -1,3 +1,5 @@
+pub(crate) mod client;
+
 use std::{
     borrow::Borrow as _,
     cell::{SyncUnsafeCell, UnsafeCell},
@@ -12,7 +14,8 @@ use std::{
 };
 
 use arrayvec::ArrayVec;
-use fspy_shared::windows::FSSPY_IPC_PAYLOAD;
+use bincode::borrow_decode_from_slice;
+use fspy_shared::{ipc::BINCODE_CONFIG, windows::{Payload, PAYLOAD_ID}};
 use ms_detours::{
     DetourAttach, DetourCopyPayloadToProcess, DetourCreateProcessWithDllExW,
     DetourCreateProcessWithDllsW, DetourDetach, DetourFindPayloadEx, DetourIsHelperProcess,
@@ -37,13 +40,12 @@ use winapi::{
 };
 use winsafe::{GetLastError, SetLastError};
 
+use client::{set_global_client, Client};
+
+use crate::windows::client::global_client;
+
 struct SyncCell<T>(UnsafeCell<T>);
 unsafe impl<T> Sync for SyncCell<T> {}
-
-static DLL_PATH: SyncCell<[u8; MAX_PATH]> = SyncCell(UnsafeCell::new([0; MAX_PATH]));
-
-static FSPY_IPC: SyncUnsafeCell<MaybeUninit<&'static [u8]>> =
-    SyncUnsafeCell::new(MaybeUninit::uninit());
 
 static CPW: SyncCell<
     unsafe extern "system" fn(
@@ -101,13 +103,13 @@ unsafe extern "system" fn CreateProcessW(
         if ret == 0 {
             return 0;
         }
+        let payload_bytes = unsafe { global_client() }.payload_bytes();
         let ret = unsafe {
-            let ipc_payload = (*FSPY_IPC.get()).assume_init();
             DetourCopyPayloadToProcess(
                 (*lpProcessInformation).hProcess,
-                &FSSPY_IPC_PAYLOAD,
-                ipc_payload.as_ptr().cast(),
-                ipc_payload.len().try_into().unwrap(),
+                &PAYLOAD_ID,
+                payload_bytes.as_ptr().cast(),
+                payload_bytes.len().try_into().unwrap(),
             )
         };
         if ret == 0 {
@@ -122,6 +124,7 @@ unsafe extern "system" fn CreateProcessW(
         ret
     }
 
+    let dll_path = unsafe { global_client() }.asni_dll_path();
     unsafe {
         DetourCreateProcessWithDllExW(
             lpApplicationName,
@@ -134,7 +137,7 @@ unsafe extern "system" fn CreateProcessW(
             lpCurrentDirectory,
             lpStartupInfo,
             lpProcessInformation,
-            (*DLL_PATH.0.get()).as_ptr().cast(),
+            dll_path.as_ptr().cast(),
             Some(CreateProcessWithPayloadW),
         )
     }
@@ -166,32 +169,12 @@ fn dll_main(hinstance: HINSTANCE, reason: u32) -> winsafe::SysResult<()> {
         winnt::DLL_PROCESS_ATTACH => {
             ck(unsafe { DetourRestoreAfterWith() })?;
 
-            let mut size: DWORD = 0;
-            let ipc_ptr =
-                unsafe { DetourFindPayloadEx(&FSSPY_IPC_PAYLOAD, &mut size).cast::<u8>() };
-            let ipc = unsafe { slice::from_raw_parts(ipc_ptr, size.try_into().unwrap()) };
-            unsafe { *FSPY_IPC.get() = MaybeUninit::new(ipc) };
-
-            let mut ipc_pipe = OpenOptions::new()
-                .write(true)
-                .open(from_utf8(ipc).unwrap())
-                .unwrap();
-
-            ipc_pipe.write(b"hello").unwrap();
-
-            unsafe {
-                GetModuleFileNameA(
-                    hinstance,
-                    DLL_PATH
-                        .0
-                        .get()
-                        .as_mut()
-                        .unwrap_unchecked()
-                        .as_mut_ptr()
-                        .cast(),
-                    MAX_PATH.try_into().unwrap(),
-                )
-            };
+            let mut payload_len: DWORD = 0;
+            let payload_ptr =
+                unsafe { DetourFindPayloadEx(&PAYLOAD_ID, &mut payload_len).cast::<u8>() };
+            let payload_bytes = unsafe { slice::from_raw_parts::<'static, u8>(payload_ptr, payload_len.try_into().unwrap()) };
+            let client = Client::from_payload_bytes(payload_bytes);
+            unsafe { set_global_client(client) };
 
             ck_long(unsafe { DetourTransactionBegin() })?;
             ck_long(unsafe { DetourUpdateThread(GetCurrentThread().cast()) })?;

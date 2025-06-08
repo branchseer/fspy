@@ -1,8 +1,17 @@
 use std::{
-    convert::Infallible, env::temp_dir, ffi::c_char, fs::create_dir, io, mem, os::windows::{ffi::OsStrExt, io::AsRawHandle, process::ChildExt as _}, str::from_utf8
+    convert::Infallible,
+    env::temp_dir,
+    ffi::c_char,
+    fs::create_dir,
+    io, mem,
+    os::windows::{ffi::OsStrExt, io::AsRawHandle, process::ChildExt as _},
+    str::from_utf8,
 };
 
-use fspy_shared::windows::FSSPY_IPC_PAYLOAD;
+use fspy_shared::{
+    ipc::BINCODE_CONFIG,
+    windows::{PAYLOAD_ID, Payload},
+};
 use futures_util::{Stream, TryStreamExt, stream::try_unfold};
 use ms_detours::{DetourCopyPayloadToProcess, DetourUpdateProcessWithDll};
 use tokio::{
@@ -54,17 +63,16 @@ fn named_pipe_server_stream(
 pub fn spawn(mut command: Command) -> io::Result<(Child, impl Future<Output = io::Result<()>>)> {
     let tmp_dir = temp_dir().join("fspy");
     let _ = create_dir(&tmp_dir);
-    let interpose_cdylib = INTERPOSE_CDYLIB.write_to(&tmp_dir, ".dll").unwrap();
+    let dll_path = INTERPOSE_CDYLIB.write_to(&tmp_dir, ".dll").unwrap();
 
-    let interpose_cdylib = interpose_cdylib
-        .as_os_str()
-        .encode_wide()
-        .collect::<Vec<u16>>();
-    let mut interpose_cdylib =
-        winsafe::WideCharToMultiByte(CP::ACP, WC::NoValue, &interpose_cdylib, None, None)
+    let wide_dll_path = dll_path.as_os_str().encode_wide().collect::<Vec<u16>>();
+    let mut asni_dll_path =
+        winsafe::WideCharToMultiByte(CP::ACP, WC::NoValue, &wide_dll_path, None, None)
             .map_err(|err| io::Error::from_raw_os_error(err.raw() as i32))?;
 
-    interpose_cdylib.push(0);
+    asni_dll_path.push(0);
+
+    let asni_dll_path_with_nul = asni_dll_path.as_slice();
 
     command.creation_flags(CREATE_SUSPENDED);
 
@@ -87,25 +95,30 @@ pub fn spawn(mut command: Command) -> io::Result<(Child, impl Future<Output = io
                 break io::Result::Ok(());
             }
             let msg = &buf[..n];
-            eprintln!("{:?}", n);
+            eprintln!("msg len {:?}", msg.len());
         }
     });
     let child = command.spawn_with(|std_command| {
         let std_child = std_command.spawn()?;
 
-        let mut interpose_cdylib = interpose_cdylib.as_ptr().cast::<c_char>();
+        let mut dll_paths = asni_dll_path_with_nul.as_ptr().cast::<c_char>();
         let process_handle = std_child.as_raw_handle().cast::<winapi::ctypes::c_void>();
-        let success =
-            unsafe { DetourUpdateProcessWithDll(process_handle, &mut interpose_cdylib, 1) };
+        let success = unsafe { DetourUpdateProcessWithDll(process_handle, &mut dll_paths, 1) };
         if success != TRUE {
             return Err(io::Error::last_os_error());
         }
+
+        let payload = Payload {
+            pipe_name: &pipe_name,
+            asni_dll_path_with_nul,
+        };
+        let payload_bytes = bincode::encode_to_vec(payload, BINCODE_CONFIG).unwrap();
         let success = unsafe {
             DetourCopyPayloadToProcess(
                 process_handle,
-                &FSSPY_IPC_PAYLOAD,
-                pipe_name.as_ptr().cast(),
-                pipe_name.len().try_into().unwrap(),
+                &PAYLOAD_ID,
+                payload_bytes.as_ptr().cast(),
+                payload_bytes.len().try_into().unwrap(),
             )
         };
         if success != TRUE {
