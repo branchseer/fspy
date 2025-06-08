@@ -36,6 +36,8 @@ smallvec = { version = "1.15.0", features = [ "write" ] }
 winsafe = { version = "0.0.24", features = ["kernel"] }
 ms-detours = "4.0.5"
 winapi = { version = "0.3.9", features = ["winerror", "winbase", "namedpipeapi" ] }
+smallvec = { version = "1.15.0", features = [ "write" ] }
+widestring = "1.2.0"
 
 [profile.dev]
 panic = "abort"

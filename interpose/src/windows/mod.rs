@@ -15,13 +15,17 @@ use std::{
 
 use arrayvec::ArrayVec;
 use bincode::borrow_decode_from_slice;
-use fspy_shared::{ipc::BINCODE_CONFIG, windows::{Payload, PAYLOAD_ID}};
+use fspy_shared::{
+    ipc::{AccessMode, BINCODE_CONFIG, NativeStr, PathAccess},
+    windows::{PAYLOAD_ID, Payload},
+};
 use ms_detours::{
     DetourAttach, DetourCopyPayloadToProcess, DetourCreateProcessWithDllExW,
     DetourCreateProcessWithDllsW, DetourDetach, DetourFindPayloadEx, DetourIsHelperProcess,
     DetourRestoreAfterWith, DetourTransactionBegin, DetourTransactionCommit, DetourUpdateThread,
 };
 
+use widestring::U16CStr;
 use winapi::{
     shared::{
         minwindef::{BOOL, DWORD, FALSE, HINSTANCE, LPVOID, MAX_PATH, TRUE},
@@ -34,13 +38,13 @@ use winapi::{
             CreateProcessW as Real_CreateProcessW, GetCurrentThread, LPPROCESS_INFORMATION,
             LPSTARTUPINFOW, ResumeThread,
         },
-        winbase::{CREATE_SUSPENDED},
+        winbase::CREATE_SUSPENDED,
         winnt::{self, LPCWSTR, LPWSTR},
     },
 };
 use winsafe::{GetLastError, SetLastError};
 
-use client::{set_global_client, Client};
+use client::{Client, set_global_client};
 
 use crate::windows::client::global_client;
 
@@ -74,6 +78,10 @@ unsafe extern "system" fn CreateProcessW(
     lpStartupInfo: LPSTARTUPINFOW,
     lpProcessInformation: LPPROCESS_INFORMATION,
 ) -> BOOL {
+    unsafe { global_client() }.send(PathAccess {
+        mode: AccessMode::Read,
+        path: NativeStr::from_wide(unsafe { U16CStr::from_ptr_str(lpApplicationName) }.as_slice()),
+    });
     unsafe extern "system" fn CreateProcessWithPayloadW(
         lpApplicationName: LPCWSTR,
         lpCommandLine: LPWSTR,
@@ -172,7 +180,9 @@ fn dll_main(hinstance: HINSTANCE, reason: u32) -> winsafe::SysResult<()> {
             let mut payload_len: DWORD = 0;
             let payload_ptr =
                 unsafe { DetourFindPayloadEx(&PAYLOAD_ID, &mut payload_len).cast::<u8>() };
-            let payload_bytes = unsafe { slice::from_raw_parts::<'static, u8>(payload_ptr, payload_len.try_into().unwrap()) };
+            let payload_bytes = unsafe {
+                slice::from_raw_parts::<'static, u8>(payload_ptr, payload_len.try_into().unwrap())
+            };
             let client = Client::from_payload_bytes(payload_bytes);
             unsafe { set_global_client(client) };
 

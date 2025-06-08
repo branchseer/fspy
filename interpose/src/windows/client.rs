@@ -4,15 +4,48 @@ use std::{
     fs::{File, OpenOptions},
     io::Write as _,
     mem::MaybeUninit,
+    os::windows::io::AsRawHandle,
+    ptr::null_mut,
 };
 
-use bincode::borrow_decode_from_slice;
-use fspy_shared::{ipc::BINCODE_CONFIG, windows::Payload};
+use bincode::{borrow_decode_from_slice, encode_into_std_write};
+use fspy_shared::{
+    ipc::{BINCODE_CONFIG, PathAccess},
+    windows::Payload,
+};
+use smallvec::SmallVec;
+use winapi::{shared::minwindef::DWORD, um::fileapi::WriteFile};
+use winsafe::GetLastError;
 
 pub struct Client<'a> {
     payload_bytes: &'a [u8],
     asni_dll_path: &'a CStr,
     ipc_pipe: File,
+}
+
+fn write_message(pipe: &File, msg: &[u8]) {
+    let mut bytes_written: DWORD = 0;
+    let bytes_len: DWORD = msg.len().try_into().unwrap();
+    let ret = unsafe {
+        WriteFile(
+            pipe.as_raw_handle().cast(),
+            msg.as_ptr().cast(),
+            msg.len().try_into().unwrap(),
+            &mut bytes_written,
+            null_mut(),
+        )
+    };
+    assert_ne!(
+        ret,
+        0,
+        "fspy WriteFile to pipe failed: {:?}",
+        GetLastError()
+    );
+    assert_eq!(
+        bytes_written, bytes_len,
+        "fspy WriteFile to pipe not completed: {} out of {} bytes written",
+        bytes_written, bytes_len
+    );
 }
 
 impl<'a> Client<'a> {
@@ -26,14 +59,17 @@ impl<'a> Client<'a> {
             .open(payload.pipe_name)
             .unwrap();
 
-        ipc_pipe.write(b"hello").unwrap();
-
         let asni_dll_path = CStr::from_bytes_with_nul(payload.asni_dll_path_with_nul).unwrap();
         Self {
             payload_bytes,
             asni_dll_path,
             ipc_pipe,
         }
+    }
+    pub fn send(&self, access: PathAccess<'_>) {
+        let mut buf = SmallVec::<[u8; 256]>::new();
+        encode_into_std_write(access, &mut buf, BINCODE_CONFIG).unwrap();
+        write_message(&self.ipc_pipe, buf.as_slice());
     }
     pub fn payload_bytes(&self) -> &'a [u8] {
         self.payload_bytes

@@ -8,8 +8,9 @@ use std::{
     str::from_utf8,
 };
 
+use bincode::borrow_decode_from_slice;
 use fspy_shared::{
-    ipc::BINCODE_CONFIG,
+    ipc::{BINCODE_CONFIG, PathAccess},
     windows::{PAYLOAD_ID, Payload},
 };
 use futures_util::{Stream, TryStreamExt, stream::try_unfold};
@@ -23,10 +24,7 @@ use tokio::{
 
 use winapi::{
     shared::minwindef::TRUE,
-    um::{
-        processthreadsapi::ResumeThread, securitybaseapi::AllocateLocallyUniqueId,
-        winbase::CREATE_SUSPENDED, winnt::LUID,
-    },
+    um::{processthreadsapi::ResumeThread, winbase::CREATE_SUSPENDED},
 };
 // use windows_sys::Win32::System::Threading::{CREATE_SUSPENDED, ResumeThread};
 use winsafe::co::{CP, WC};
@@ -87,17 +85,22 @@ pub fn spawn(mut command: Command) -> io::Result<(Child, impl Future<Output = io
 
     let server_stream = named_pipe_server_stream(pipe_server_opts, pipe_name.clone().into())?;
 
+    const MESSAGE_MAX_LEN: usize = 4096;
     let fut = server_stream.try_for_each_concurrent(None, |mut connection| async move {
-        let mut buf = [0u8; 4097];
+        let mut buf = vec![0u8; MESSAGE_MAX_LEN];
         loop {
             let n = connection.read(&mut buf).await?;
             if n == 0 {
                 break io::Result::Ok(());
             }
             let msg = &buf[..n];
-            eprintln!("msg len {:?}", msg.len());
+            let (path_access, decoded_len) =
+                borrow_decode_from_slice::<'_, PathAccess, _>(msg, BINCODE_CONFIG).unwrap();
+            assert_eq!(decoded_len, msg.len());
+            eprintln!("{:?}", path_access);
         }
     });
+
     let child = command.spawn_with(|std_command| {
         let std_child = std_command.spawn()?;
 
