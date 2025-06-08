@@ -44,11 +44,20 @@ impl<'a> NativeStr<'a> {
         use bytemuck::allocation::pod_collect_to_vec;
         use bytemuck::try_cast_slice;
         use std::os::windows::ffi::OsStringExt;
+        use winsafe::{
+            MultiByteToWideChar,
+            co::{CP, MBC},
+        };
 
-        if let Ok(wide) = try_cast_slice::<u8, u16>(self.data) {
-            OsString::from_wide(wide)
+        if self.is_wide {
+            if let Ok(wide) = try_cast_slice::<u8, u16>(self.data) {
+                OsString::from_wide(wide)
+            } else {
+                let wide = pod_collect_to_vec::<u8, u16>(self.data);
+                OsString::from_wide(&wide)
+            }
         } else {
-            let wide = pod_collect_to_vec::<u8, u16>(self.data);
+            let wide = MultiByteToWideChar(CP::ACP, MBC::ERR_INVALID_CHARS, self.data).unwrap();
             OsString::from_wide(&wide)
         }
     }
@@ -70,6 +79,15 @@ impl<'a> Debug for NativeStr<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn test_from_asni() {
+        let asni_str = "hello";
+        let native_str = NativeStr::from_bytes(asni_str.as_bytes());
+        let os_string = native_str.to_os_string();
+        assert_eq!(os_string.to_str().unwrap(), asni_str);
+    }
 
     #[cfg(windows)]
     #[test]

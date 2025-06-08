@@ -4,7 +4,7 @@ use std::{
     fs::{File, OpenOptions},
     io::Write as _,
     mem::MaybeUninit,
-    os::windows::io::AsRawHandle,
+    os::windows::io::{AsHandle, AsRawHandle, BorrowedHandle, OwnedHandle},
     ptr::null_mut,
 };
 
@@ -20,15 +20,15 @@ use winsafe::GetLastError;
 pub struct Client<'a> {
     payload_bytes: &'a [u8],
     asni_dll_path: &'a CStr,
-    ipc_pipe: File,
+    ipc_pipe: OwnedHandle,
 }
 
-fn write_message(pipe: &File, msg: &[u8]) {
+fn write_message(pipe: &impl AsHandle, msg: &[u8]) {
     let mut bytes_written: DWORD = 0;
     let bytes_len: DWORD = msg.len().try_into().unwrap();
     let ret = unsafe {
         WriteFile(
-            pipe.as_raw_handle().cast(),
+            pipe.as_handle().as_raw_handle().cast(),
             msg.as_ptr().cast(),
             msg.len().try_into().unwrap(),
             &mut bytes_written,
@@ -54,10 +54,12 @@ impl<'a> Client<'a> {
             borrow_decode_from_slice::<'a, Payload, _>(payload_bytes, BINCODE_CONFIG).unwrap();
         assert_eq!(decoded_len, payload_bytes.len());
 
-        let mut ipc_pipe = OpenOptions::new()
+        let ipc_pipe = OpenOptions::new()
             .write(true)
             .open(payload.pipe_name)
             .unwrap();
+
+        let ipc_pipe = OwnedHandle::from(ipc_pipe);
 
         let asni_dll_path = CStr::from_bytes_with_nul(payload.asni_dll_path_with_nul).unwrap();
         Self {

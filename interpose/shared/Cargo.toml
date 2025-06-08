@@ -12,3 +12,4 @@ bstr = "1.12.0"
 winapi = "0.3.9"
 ms-detours = "4.0.5"
 bytemuck = { version = "1.23.0", features = ["must_cast", "extern_crate_alloc"] }
+winsafe = { version = "0.0.24", features = ["kernel"] }

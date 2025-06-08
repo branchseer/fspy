@@ -419,6 +419,7 @@ dependencies = [
  "bytemuck",
  "ms-detours",
  "winapi",
+ "winsafe 0.0.24",
 ]
 
 [[package]]
