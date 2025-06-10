@@ -1,33 +1,33 @@
 use std::{
     cell::SyncUnsafeCell,
-    ffi::CStr,
+    ffi::{c_void, CStr},
     fs::OpenOptions,
     mem::MaybeUninit,
-    os::windows::io::{AsHandle, AsRawHandle, OwnedHandle},
-    ptr::null_mut,
+    os::windows::io::{AsHandle, AsRawHandle, OwnedHandle, RawHandle},
+    ptr::{null, null_mut},
 };
 
-use bincode::{borrow_decode_from_slice, encode_into_std_write};
+use bincode::{borrow_decode_from_slice, encode_into_std_write, encode_to_vec};
 use fspy_shared::{
-    ipc::{BINCODE_CONFIG, PathAccess},
-    windows::Payload,
+    ipc::{PathAccess, BINCODE_CONFIG},
+    windows::{Payload, PAYLOAD_ID},
 };
+use ms_detours::DetourCopyPayloadToProcess;
+use ntapi::ntobapi::DUPLICATE_SAME_ACCESS;
 use smallvec::SmallVec;
-use winapi::{shared::minwindef::DWORD, um::fileapi::WriteFile};
+use winapi::{shared::minwindef::{BOOL, DWORD, FALSE}, um::{fileapi::WriteFile, handleapi::DuplicateHandle, processthreadsapi::GetCurrentProcess, winnt::HANDLE}};
 use winsafe::GetLastError;
 
 pub struct Client<'a> {
-    payload_bytes: &'a [u8],
-    asni_dll_path: &'a CStr,
-    ipc_pipe: OwnedHandle,
+    payload: Payload<'a>
 }
 
-fn write_pipe_message(pipe: &impl AsHandle, msg: &[u8]) {
+fn write_pipe_message(pipe: HANDLE, msg: &[u8]) {
     let mut bytes_written: DWORD = 0;
     let bytes_len: DWORD = msg.len().try_into().unwrap();
     let ret = unsafe {
         WriteFile(
-            pipe.as_handle().as_raw_handle().cast(),
+            pipe,
             msg.as_ptr().cast(),
             msg.len().try_into().unwrap(),
             &mut bytes_written,
@@ -53,30 +53,52 @@ impl<'a> Client<'a> {
             borrow_decode_from_slice::<'a, Payload, _>(payload_bytes, BINCODE_CONFIG).unwrap();
         assert_eq!(decoded_len, payload_bytes.len());
 
-        let ipc_pipe = OpenOptions::new()
-            .write(true)
-            .open(payload.pipe_name)
-            .unwrap();
-
-        let ipc_pipe = OwnedHandle::from(ipc_pipe);
-
-        let asni_dll_path = CStr::from_bytes_with_nul(payload.asni_dll_path_with_nul).unwrap();
         Self {
-            payload_bytes,
-            asni_dll_path,
-            ipc_pipe,
+            payload
         }
     }
     pub fn send(&self, access: PathAccess<'_>) {
+        // if !std::env::current_exe().unwrap().ends_with("node.exe") {
+        //     return;
+        // }
         let mut buf = SmallVec::<u8, 256>::new();
         encode_into_std_write(access, &mut buf, BINCODE_CONFIG).unwrap();
-        write_pipe_message(&self.ipc_pipe, buf.as_slice());
+
+        write_pipe_message(self.payload.pipe_handle as _, buf.as_slice());
     }
-    pub fn payload_bytes(&self) -> &'a [u8] {
-        self.payload_bytes
+    pub unsafe fn prepare_child_process(&self, child_handle: HANDLE) -> BOOL {
+        let mut payload = self.payload;
+        
+        let mut handle_in_child: *mut c_void = null_mut();
+        let ret = unsafe {
+            DuplicateHandle(
+                GetCurrentProcess(),
+                payload.pipe_handle as _,
+                child_handle,
+                &mut handle_in_child,
+                0,
+                FALSE,
+                DUPLICATE_SAME_ACCESS,
+            )
+        };
+        if ret == 0 {
+            return 0;
+        }
+        
+        payload.pipe_handle = handle_in_child as usize;
+        
+        let payload_bytes = encode_to_vec(payload, BINCODE_CONFIG).unwrap();
+        unsafe {
+            DetourCopyPayloadToProcess(
+                child_handle,
+                &PAYLOAD_ID,
+                payload_bytes.as_ptr().cast(),
+                payload_bytes.len().try_into().unwrap(),
+            )
+        }
     }
     pub fn asni_dll_path(&self) -> &'a CStr {
-        self.asni_dll_path
+        unsafe { CStr::from_bytes_with_nul_unchecked(self.payload.asni_dll_path_with_nul) }
     }
 }
 

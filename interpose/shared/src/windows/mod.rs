@@ -7,8 +7,8 @@ use winapi::DEFINE_GUID;
 // {FC4845F1-3A8B-4F05-A3D3-A5E9E102AF33}
 DEFINE_GUID!(PAYLOAD_ID, 0xfc4845f1, 0x3a8b, 0x4f05, 0xa3, 0xd3, 0xa5, 0xe9, 0xe1, 0x2, 0xaf, 0x33);
 
-#[derive(Encode, BorrowDecode, Debug)]
+#[derive(Encode, BorrowDecode, Debug, Clone, Copy)]
 pub struct Payload<'a> {
-    pub pipe_name: &'a str,
+    pub pipe_handle: usize,
     pub asni_dll_path_with_nul: &'a [u8],
 }

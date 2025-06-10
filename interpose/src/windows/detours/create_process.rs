@@ -57,7 +57,7 @@ unsafe extern "system" fn CreateProcessW(
             path: NativeStr::from_wide(
                 unsafe { U16CStr::from_ptr_str(lpApplicationName) }.as_slice(),
             ),
-            dir: None, // TODO: get cwd if needed
+            dir: None,
         });
     }
     unsafe extern "system" fn CreateProcessWithPayloadW(
@@ -89,23 +89,14 @@ unsafe extern "system" fn CreateProcessW(
         if ret == 0 {
             return 0;
         }
-        let payload_bytes = unsafe { global_client() }.payload_bytes();
-        let ret = unsafe {
-            DetourCopyPayloadToProcess(
-                (*lpProcessInformation).hProcess,
-                &PAYLOAD_ID,
-                payload_bytes.as_ptr().cast(),
-                payload_bytes.len().try_into().unwrap(),
-            )
-        };
+
+        let ret = unsafe { global_client().prepare_child_process((*lpProcessInformation).hProcess) };
+        
         if ret == 0 {
             return 0;
         }
         if dwCreationFlags & CREATE_SUSPENDED == 0 {
             let ret = unsafe { ResumeThread((*lpProcessInformation).hThread) };
-
-            let cmd_line = unsafe { U16CStr::from_ptr_str(lpCommandLine) };
-            dbg!(cmd_line);
             if ret == -1i32 as DWORD {
                 return 0;
             }

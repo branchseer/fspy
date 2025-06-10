@@ -6,22 +6,24 @@ use tokio::process::Command;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    // 
-    let mut cmd = Command::new("C:\\Users\\branchseer\\AppData\\Local\\mise\\installs\\node\\24.1.0\\node.exe");
+
+    
+    // C:\\Users\\branchseer\\AppData\\Local\\mise\\installs\\node\\24.1.0\\node.exe
+    let mut cmd = Command::new("cmd.exe");
     cmd.args([
         // "/c",
         //  "cmd", "/c",
         // "target/debug/examples/fsacc.exe"
-        // "/c", "node -e require('balabala')",
+        "/c", "node -e require('./balabala1')",
         // "/c",
-       "-e", "fs.readFileSync('./dasda/xas.sh')",
+    //    "-e", "fs.readFileSync('./dasda/xas.sh')",
         //  "type x.sh"
         // "node", "--version"
     ]);
-    cmd.stdin(Stdio::inherit());
-    cmd.stdout(Stdio::inherit());
-    cmd.stderr(Stdio::inherit());
-    let (child, fut) = fspy::spawn(cmd)?;
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::null());
+    let (child, fut) = fspy::spawn(cmd).await?;
 
     let output_fut = child.wait_with_output();
 

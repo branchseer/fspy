@@ -1,10 +1,11 @@
 use std::{
     convert::Infallible,
     env::temp_dir,
-    ffi::c_char,
-    fs::create_dir,
+    ffi::{c_char, c_void},
+    fs::{File, OpenOptions, create_dir},
     io, mem,
     os::windows::{ffi::OsStrExt, io::AsRawHandle, process::ChildExt as _},
+    ptr::{null, null_mut},
     str::from_utf8,
 };
 
@@ -13,18 +14,28 @@ use fspy_shared::{
     ipc::{BINCODE_CONFIG, PathAccess},
     windows::{PAYLOAD_ID, Payload},
 };
-use futures_util::{future::join, stream::try_unfold, Stream, TryStreamExt};
+use futures_util::{
+    Stream, TryStreamExt,
+    future::{join, try_join},
+    stream::try_unfold,
+};
 use ms_detours::{DetourCopyPayloadToProcess, DetourUpdateProcessWithDll};
 use tokio::{
     io::AsyncReadExt,
     net::windows::named_pipe::{NamedPipeServer, PipeMode, ServerOptions},
-    process::{Child, Command}, sync::{mpsc, oneshot},
+    process::{Child, Command},
+    sync::{mpsc, oneshot},
 };
 // use detours_sys2::{DetourAttach,};
 
 use winapi::{
-    shared::minwindef::TRUE,
-    um::{processthreadsapi::ResumeThread, winbase::CREATE_SUSPENDED},
+    shared::minwindef::{FALSE, TRUE},
+    um::{
+        handleapi::DuplicateHandle,
+        processthreadsapi::{GetCurrentProcess, ResumeThread},
+        winbase::CREATE_SUSPENDED,
+        winnt::{DUPLICATE_SAME_ACCESS, GENERIC_WRITE},
+    },
 };
 // use windows_sys::Win32::System::Threading::{CREATE_SUSPENDED, ResumeThread};
 use winsafe::co::{CP, WC};
@@ -58,7 +69,9 @@ fn named_pipe_server_stream(
     ))
 }
 
-pub fn spawn(mut command: Command) -> io::Result<(Child, impl Future<Output = io::Result<()>>)> {
+pub async fn spawn(
+    mut command: Command,
+) -> io::Result<(Child, impl Future<Output = io::Result<()>>)> {
     let tmp_dir = temp_dir().join("fspy");
     let _ = create_dir(&tmp_dir);
     let dll_path = INTERPOSE_CDYLIB.write_to(&tmp_dir, ".dll").unwrap();
@@ -76,21 +89,29 @@ pub fn spawn(mut command: Command) -> io::Result<(Child, impl Future<Output = io
 
     let pipe_name = format!(r"\\.\pipe\fspy_ipc_{:x}", luid()?);
 
-    let pipe_server_opts = {
-        let mut opts = ServerOptions::new();
-        opts.pipe_mode(PipeMode::Message);
-        opts.access_outbound(false);
-        opts
-    };
+    // let pipe_server_opts = {
+    //     let mut opts = ServerOptions::new();
+    //     opts.pipe_mode(PipeMode::Message);
+    //     opts.access_outbound(false);
+    //     opts
+    // };
+    let mut pipe_receiver = ServerOptions::new()
+        .pipe_mode(PipeMode::Message)
+        .access_outbound(false)
+        .access_inbound(true)
+        .create(&pipe_name)?;
 
-    let server_stream = named_pipe_server_stream(pipe_server_opts, pipe_name.clone().into())?;
+    let connect_fut = pipe_receiver.connect();
 
-    const MESSAGE_MAX_LEN: usize = 4096;
+    let pipe_sender = OpenOptions::new().write(true).open(&pipe_name).unwrap();
 
-    let fut = server_stream.try_for_each_concurrent(None, move |mut connection| async move {
+    connect_fut.await?;
+
+    let fut = async move {
+        const MESSAGE_MAX_LEN: usize = 4096;
         let mut buf = vec![0u8; MESSAGE_MAX_LEN];
         loop {
-            let n = connection.read(&mut buf).await?;
+            let n = pipe_receiver.read(&mut buf).await?;
             if n == 0 {
                 break io::Result::Ok(());
             }
@@ -100,7 +121,7 @@ pub fn spawn(mut command: Command) -> io::Result<(Child, impl Future<Output = io
             assert_eq!(decoded_len, msg.len());
             eprintln!("{:?}", path_access);
         }
-    });
+    };
 
     let child = command.spawn_with(|std_command| {
         let std_child = std_command.spawn()?;
@@ -112,8 +133,24 @@ pub fn spawn(mut command: Command) -> io::Result<(Child, impl Future<Output = io
             return Err(io::Error::last_os_error());
         }
 
+        let mut handle_in_child: *mut c_void = null_mut();
+        let ret = unsafe {
+            DuplicateHandle(
+                GetCurrentProcess(),
+                pipe_sender.as_raw_handle(),
+                process_handle,
+                &mut handle_in_child,
+                0,
+                FALSE,
+                DUPLICATE_SAME_ACCESS,
+            )
+        };
+        if ret == 0 {
+            return Err(io::Error::last_os_error());
+        }
+
         let payload = Payload {
-            pipe_name: &pipe_name,
+            pipe_handle: handle_in_child.addr(),
             asni_dll_path_with_nul,
         };
         let payload_bytes = bincode::encode_to_vec(payload, BINCODE_CONFIG).unwrap();
@@ -139,5 +176,7 @@ pub fn spawn(mut command: Command) -> io::Result<(Child, impl Future<Output = io
 
         Ok(std_child)
     })?;
+
+    drop(pipe_sender);
     Ok((child, fut))
 }
