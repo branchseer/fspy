@@ -32,6 +32,7 @@ impl<T> Detour<T> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct DetourAny {
     real: *mut *mut c_void,
     new: *const *mut c_void,

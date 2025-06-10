@@ -16,4 +16,5 @@ pub enum AccessMode {
 pub struct PathAccess<'a> {
     pub mode: AccessMode,
     pub path: NativeStr<'a>,
+    pub dir: Option<NativeStr<'a>>,
 }

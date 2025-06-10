@@ -1,25 +1,26 @@
-use crate::windows::{client::global_client, detour::{Detour, DetourAny}};
+use crate::windows::{
+    client::global_client,
+    detour::{Detour, DetourAny},
+};
 
-use fspy_shared::{ipc::{AccessMode, NativeStr, PathAccess}, windows::PAYLOAD_ID};
+use fspy_shared::{
+    ipc::{AccessMode, NativeStr, PathAccess},
+    windows::PAYLOAD_ID,
+};
 use ms_detours::{DetourCopyPayloadToProcess, DetourCreateProcessWithDllExW};
 use widestring::U16CStr;
 use winapi::{
-    shared::{
-        minwindef::{BOOL, DWORD, FALSE, HINSTANCE, LPVOID, MAX_PATH, TRUE},
-        winerror::NO_ERROR,
-    },
+    shared::minwindef::{BOOL, DWORD, LPVOID},
     um::{
-        libloaderapi::GetModuleFileNameA,
         minwinbase::LPSECURITY_ATTRIBUTES,
         processthreadsapi::{
-            CreateProcessW as Real_CreateProcessW, GetCurrentThread, LPPROCESS_INFORMATION,
-            LPSTARTUPINFOW, ResumeThread,
+            CreateProcessW as Real_CreateProcessW, LPPROCESS_INFORMATION, LPSTARTUPINFOW,
+            ResumeThread,
         },
         winbase::CREATE_SUSPENDED,
-        winnt::{self, LPCWSTR, LPWSTR},
+        winnt::{LPCWSTR, LPWSTR},
     },
 };
-use winsafe::{GetLastError, SetLastError, SysResult};
 
 static DETOUR_CREATE_PROCESS_W: Detour<
     unsafe extern "system" fn(
@@ -48,11 +49,17 @@ unsafe extern "system" fn CreateProcessW(
     lpStartupInfo: LPSTARTUPINFOW,
     lpProcessInformation: LPPROCESS_INFORMATION,
 ) -> BOOL {
+
     let client = unsafe { global_client() };
-    client.send(PathAccess {
-        mode: AccessMode::Read,
-        path: NativeStr::from_wide(unsafe { U16CStr::from_ptr_str(lpApplicationName) }.as_slice()),
-    });
+    if !lpApplicationName.is_null() {
+        client.send(PathAccess {
+            mode: AccessMode::Read,
+            path: NativeStr::from_wide(
+                unsafe { U16CStr::from_ptr_str(lpApplicationName) }.as_slice(),
+            ),
+            dir: None, // TODO: get cwd if needed
+        });
+    }
     unsafe extern "system" fn CreateProcessWithPayloadW(
         lpApplicationName: LPCWSTR,
         lpCommandLine: LPWSTR,
@@ -96,6 +103,9 @@ unsafe extern "system" fn CreateProcessW(
         }
         if dwCreationFlags & CREATE_SUSPENDED == 0 {
             let ret = unsafe { ResumeThread((*lpProcessInformation).hThread) };
+
+            let cmd_line = unsafe { U16CStr::from_ptr_str(lpCommandLine) };
+            dbg!(cmd_line);
             if ret == -1i32 as DWORD {
                 return 0;
             }
@@ -120,6 +130,5 @@ unsafe extern "system" fn CreateProcessW(
         )
     }
 }
-
 
 pub const DETOURS: &[DetourAny] = &[DETOUR_CREATE_PROCESS_W.as_any()];

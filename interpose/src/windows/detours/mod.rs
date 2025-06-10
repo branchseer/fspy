@@ -1,5 +1,12 @@
-use super::detour::DetourAny;
 
 mod create_process;
+mod fileapi;
+mod nt;
 
-pub const DETOURS: &[DetourAny] = create_process::DETOURS;
+use super::detour::DetourAny;
+use constcat::concat_slices;
+
+pub const DETOURS: &[DetourAny] = concat_slices!([DetourAny]:
+    create_process::DETOURS,
+    fileapi::DETOURS,
+);

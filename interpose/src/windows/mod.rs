@@ -3,7 +3,7 @@ pub(crate) mod detour;
 mod detours;
 mod winapi_utils;
 
-use std::slice;
+use std::{env::current_exe, slice};
 
 use detours::DETOURS;
 use fspy_shared::windows::PAYLOAD_ID;
@@ -31,6 +31,7 @@ fn dll_main(_hinstance: HINSTANCE, reason: u32) -> winsafe::SysResult<()> {
 
     match reason {
         winnt::DLL_PROCESS_ATTACH => {
+            // dbg!((current_exe(), std::process::id()));
             ck(unsafe { DetourRestoreAfterWith() })?;
 
             let mut payload_len: DWORD = 0;

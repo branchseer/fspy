@@ -13,12 +13,12 @@ use fspy_shared::{
     ipc::{BINCODE_CONFIG, PathAccess},
     windows::{PAYLOAD_ID, Payload},
 };
-use futures_util::{Stream, TryStreamExt, stream::try_unfold};
+use futures_util::{future::join, stream::try_unfold, Stream, TryStreamExt};
 use ms_detours::{DetourCopyPayloadToProcess, DetourUpdateProcessWithDll};
 use tokio::{
     io::AsyncReadExt,
     net::windows::named_pipe::{NamedPipeServer, PipeMode, ServerOptions},
-    process::{Child, Command},
+    process::{Child, Command}, sync::{mpsc, oneshot},
 };
 // use detours_sys2::{DetourAttach,};
 
@@ -86,7 +86,8 @@ pub fn spawn(mut command: Command) -> io::Result<(Child, impl Future<Output = io
     let server_stream = named_pipe_server_stream(pipe_server_opts, pipe_name.clone().into())?;
 
     const MESSAGE_MAX_LEN: usize = 4096;
-    let fut = server_stream.try_for_each_concurrent(None, |mut connection| async move {
+
+    let fut = server_stream.try_for_each_concurrent(None, move |mut connection| async move {
         let mut buf = vec![0u8; MESSAGE_MAX_LEN];
         loop {
             let n = connection.read(&mut buf).await?;

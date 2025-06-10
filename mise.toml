@@ -1,3 +1,4 @@
 [tools]
+node = "24.1.0"
 # cargo-binstall = "1.12.3"
 # "cargo:bindgen-cli" = "0.71.1"
