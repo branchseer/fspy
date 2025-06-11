@@ -1,8 +1,20 @@
 use std::{
-    cell::SyncUnsafeCell, ffi::{c_void, CStr}, fs::OpenOptions, hint::black_box, mem::MaybeUninit, os::windows::io::{AsHandle, AsRawHandle, OwnedHandle, RawHandle}, ptr::{null, null_mut}
+    cell::SyncUnsafeCell,
+    ffi::{CStr, c_void},
+    fs::OpenOptions,
+    hint::black_box,
+    mem::MaybeUninit,
+    os::windows::io::{AsHandle, AsRawHandle, OwnedHandle, RawHandle},
+    ptr::{null, null_mut},
+    sync::{
+        Mutex, RwLock,
+        mpsc::{self, Receiver, Sender},
+    },
+    thread::JoinHandle,
 };
 
 use bincode::{borrow_decode_from_slice, encode_into_std_write, encode_to_vec};
+use dashmap::DashSet;
 use fspy_shared::{
     ipc::{BINCODE_CONFIG, PathAccess},
     windows::{PAYLOAD_ID, Payload},
@@ -21,8 +33,11 @@ use winsafe::GetLastError;
 
 use crate::stack_once::{StackOnceGuard, stack_once_token};
 
+const MSG_INLINE_SIZE: usize = 256;
+
 pub struct Client<'a> {
     payload: Payload<'a>,
+    messages: DashSet<SmallVec<u8, MSG_INLINE_SIZE>>,
 }
 
 unsafe fn write_pipe_message(pipe: HANDLE, msg: &[u8]) {
@@ -52,20 +67,18 @@ unsafe fn write_pipe_message(pipe: HANDLE, msg: &[u8]) {
 
 stack_once_token!(PATH_ACCESS_ONCE);
 
-pub struct PathAccessSender {
-    pipe_handle: HANDLE,
+pub struct PathAccessSender<'a> {
+    messages: &'a DashSet<SmallVec<u8, MSG_INLINE_SIZE>>,
     _once_guard: StackOnceGuard,
 }
 
-impl PathAccessSender {
+impl<'a> PathAccessSender<'a> {
     pub unsafe fn send(&self, access: PathAccess<'_>) {
-       
         // TODO: send cwd as dir if the path is relative
         let mut buf = SmallVec::<u8, 256>::new();
         encode_into_std_write(access, &mut buf, BINCODE_CONFIG).unwrap();
-        // black_box(buf);
-        //  return;
-        unsafe { write_pipe_message(self.pipe_handle, buf.as_slice()) };
+
+        self.messages.insert(buf);
     }
 }
 
@@ -75,12 +88,20 @@ impl<'a> Client<'a> {
             borrow_decode_from_slice::<'a, Payload, _>(payload_bytes, BINCODE_CONFIG).unwrap();
         assert_eq!(decoded_len, payload_bytes.len());
 
-        Self { payload }
+        Self {
+            payload,
+            messages: DashSet::with_capacity(1024),
+        }
+    }
+    pub fn finish(&self) {
+        for msg in self.messages.iter() {
+            unsafe { write_pipe_message(self.payload.pipe_handle as _, &msg) };
+        }
     }
     pub fn sender(&self) -> Option<PathAccessSender> {
         let guard = PATH_ACCESS_ONCE.try_enter()?;
         Some(PathAccessSender {
-            pipe_handle: self.payload.pipe_handle as _,
+            messages: &self.messages,
             _once_guard: guard,
         })
     }

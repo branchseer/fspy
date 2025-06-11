@@ -24,7 +24,7 @@ use winsafe::SetLastError;
 
 use client::{Client, set_global_client};
 
-use crate::windows::detour::AttachContext;
+use crate::windows::{client::global_client, detour::AttachContext};
 
 fn dll_main(_hinstance: HINSTANCE, reason: u32) -> winsafe::SysResult<()> {
     if unsafe { DetourIsHelperProcess() } == TRUE {
@@ -57,6 +57,7 @@ fn dll_main(_hinstance: HINSTANCE, reason: u32) -> winsafe::SysResult<()> {
             ck_long(unsafe { DetourTransactionCommit() })?;
         }
         winnt::DLL_PROCESS_DETACH => {
+            unsafe { global_client() }.finish();
             ck(unsafe { DetourTransactionBegin() })?;
             ck(unsafe { DetourUpdateThread(GetCurrentThread().cast()) })?;
 

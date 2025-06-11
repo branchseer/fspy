@@ -63,3 +63,4 @@ ref-cast = "1.0.24"
 which = "7.0.3"
 fspy_shared = { path = "shared" }
 ntapi = "0.4.1"
+dashmap = "6.1.0"
