@@ -1,4 +1,4 @@
-use std::{ffi::CStr, slice};
+use std::{cell::Cell, ffi::CStr, slice};
 
 use arrayvec::ArrayVec;
 use fspy_shared::ipc::{AccessMode, NativeStr, PathAccess};
@@ -52,6 +52,33 @@ unsafe fn to_path_access<R, F: FnOnce(PathAccess<'_>) -> R>(
     f(path_access)
 }
 
+thread_local! { pub static IS_DETOURING: Cell<bool> = const { Cell::new(false) }; }
+
+struct DetourGuard {
+    active: bool
+}
+
+impl DetourGuard {
+    pub fn new() -> Self {
+        let active = !IS_DETOURING.get();
+        if active {
+            IS_DETOURING.set(true);
+        }
+        Self { active }
+    }
+    pub fn active(&self) -> bool {
+        self.active
+    }
+}
+
+impl Drop for DetourGuard {
+    fn drop(&mut self) {
+        if self.active {
+            IS_DETOURING.set(false);
+        }
+    }
+}
+
 static DETOUR_NT_CREATE_FILE: Detour<
     unsafe extern "system" fn(
         file_handle: PHANDLE,
@@ -81,11 +108,16 @@ static DETOUR_NT_CREATE_FILE: Detour<
             ea_buffer: PVOID,
             ea_length: ULONG,
         ) -> HFILE {
-            unsafe {
-                to_path_access(desired_access, object_attributes, |path_access| {
-                    global_client().send(path_access);
-                })
-            };
+            let guard = DetourGuard::new();
+            if guard.active {
+                let bt = backtrace::Backtrace::new();
+                unsafe {
+                    to_path_access(desired_access, object_attributes, |path_access| {
+                        eprintln!("NtCreateFile {:?} {:?}", path_access.path, bt);
+                        global_client().send(path_access);
+                    })
+                };
+            }
 
             unsafe {
                 (DETOUR_NT_CREATE_FILE.real())(
@@ -128,7 +160,8 @@ static DETOUR_NT_OPEN_FILE: Detour<
         ) -> HFILE {
             unsafe {
                 to_path_access(desired_access, object_attributes, |path_access| {
-                    global_client().send(path_access);
+                    // eprintln!("NtOpenFile {:?}", path_access.path);
+                    // global_client().send(path_access);
                 })
             };
             unsafe {
@@ -157,11 +190,16 @@ static DETOUR_NT_QUERY_ATRRIBUTES_FILE: Detour<
             object_attributes: POBJECT_ATTRIBUTES,
             file_information: PFILE_BASIC_INFORMATION,
         ) -> HFILE {
-            unsafe {
-                to_path_access(GENERIC_READ, object_attributes, |path_access| {
-                    global_client().send(path_access);
-                })
-            };
+            
+            let guard = DetourGuard::new();
+            if guard.active {
+                unsafe {
+                    to_path_access(GENERIC_READ, object_attributes, |path_access| {
+                        eprintln!("DETOUR_NT_QUERY_ATRRIBUTES_FILE {:?}", path_access.path);
+                        // global_client().send(path_access);
+                    })
+                };
+            }
             unsafe { (DETOUR_NT_QUERY_ATRRIBUTES_FILE.real())(object_attributes, file_information) }
         }
         new_nt_open_file
@@ -179,11 +217,17 @@ static DETOUR_NT_FULL_QUERY_ATRRIBUTES_FILE: Detour<
             object_attributes: POBJECT_ATTRIBUTES,
             file_information: PFILE_NETWORK_OPEN_INFORMATION,
         ) -> HFILE {
+            
+            let guard = DetourGuard::new();
+            if guard.active {
             unsafe {
                 to_path_access(GENERIC_READ, object_attributes, |path_access| {
-                    global_client().send(path_access);
+                                            eprintln!("NtQueryFullAttributesFile {:?}", path_access.path);
+
+                    // global_client().send(path_access);
                 })
             };
+        }
             unsafe {
                 (DETOUR_NT_FULL_QUERY_ATRRIBUTES_FILE.real())(object_attributes, file_information)
             }
@@ -239,11 +283,18 @@ static DETOUR_NT_QUERY_INFORMATION_BY_NAME: Detour<
             length: ULONG,
             file_information_class: FILE_INFORMATION_CLASS,
         ) -> HFILE {
+            
+            let guard = DetourGuard::new();
+            if guard.active {
+
+                let bt = backtrace::Backtrace::new();
             unsafe {
                 to_path_access(GENERIC_READ, object_attributes, |path_access| {
-                    global_client().send(path_access);
+                    eprintln!("NtQueryInformationByName {:?} {:?}", path_access.path, bt);
+                    // global_client().send(path_access);
                 })
             };
+        }
             unsafe {
                 (DETOUR_NT_QUERY_INFORMATION_BY_NAME.real())(
                     object_attributes,
@@ -260,10 +311,10 @@ static DETOUR_NT_QUERY_INFORMATION_BY_NAME: Detour<
 
 #[allow(unused)]
 pub const DETOURS: &[DetourAny] = &[
-    DETOUR_NT_CREATE_FILE.as_any(),
-    DETOUR_NT_OPEN_FILE.as_any(),
+    // DETOUR_NT_CREATE_FILE.as_any(),
+    // DETOUR_NT_OPEN_FILE.as_any(),
     DETOUR_NT_QUERY_ATRRIBUTES_FILE.as_any(),
     DETOUR_NT_FULL_QUERY_ATRRIBUTES_FILE.as_any(),
-    DETOUR_NT_OPEN_SYMBOLIC_LINK_OBJECT.as_any(),
+    // DETOUR_NT_OPEN_SYMBOLIC_LINK_OBJECT.as_any(),
     DETOUR_NT_QUERY_INFORMATION_BY_NAME.as_any(),
 ];

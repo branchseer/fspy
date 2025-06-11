@@ -35,7 +35,7 @@ static DETOUR_CREATE_PROCESS_W: Detour<
         LPSTARTUPINFOW,
         LPPROCESS_INFORMATION,
     ) -> i32,
-> = unsafe { Detour::new(Real_CreateProcessW, CreateProcessW) };
+> = unsafe { Detour::new(c"CreateProcessW", Real_CreateProcessW, CreateProcessW) };
 
 unsafe extern "system" fn CreateProcessW(
     lpApplicationName: LPCWSTR,
