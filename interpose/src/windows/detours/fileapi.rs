@@ -1,4 +1,7 @@
-use std::{ffi::CStr, slice};
+use std::{
+    ffi::{CStr, c_int},
+    slice,
+};
 
 use arrayvec::ArrayVec;
 use fspy_shared::ipc::{AccessMode, NativeStr, PathAccess};
@@ -8,15 +11,15 @@ use winapi::{
     shared::{
         minwindef::{BOOL, DWORD, HFILE, LPVOID, MAX_PATH, UINT},
         ntdef::{
-            HANDLE, LPCSTR, LPCWSTR, PHANDLE, PLARGE_INTEGER, POBJECT_ATTRIBUTES, PUNICODE_STRING,
-            PVOID, ULONG, UNICODE_STRING,
+            HANDLE, LPCSTR, LPCWSTR, PCWSTR, PHANDLE, PLARGE_INTEGER, POBJECT_ATTRIBUTES,
+            PUNICODE_STRING, PVOID, ULONG, UNICODE_STRING,
         },
     },
     um::{
         fileapi::{
-            CreateFile2, CreateFileA, DeleteFileA, DeleteFileW, FindFirstFileA,
-            FindFirstFileW, GetFileAttributesA, GetFileAttributesExA, GetFileAttributesExW,
-            GetFileAttributesW, GetFinalPathNameByHandleW, LPCREATEFILE2_EXTENDED_PARAMETERS,
+            CreateFile2, CreateFileA, DeleteFileA, DeleteFileW, FindFirstFileA, FindFirstFileW,
+            GetFileAttributesA, GetFileAttributesExA, GetFileAttributesExW, GetFileAttributesW,
+            GetFinalPathNameByHandleW, LPCREATEFILE2_EXTENDED_PARAMETERS,
         },
         minwinbase::{
             GET_FILEEX_INFO_LEVELS, LPSECURITY_ATTRIBUTES, LPWIN32_FIND_DATAA, LPWIN32_FIND_DATAW,
@@ -36,7 +39,7 @@ use crate::windows::{
 };
 
 unsafe extern "system" {
-     unsafe fn CreateFileW(
+    unsafe fn CreateFileW(
         lp_file_name: LPCWSTR,
         dw_desired_access: DWORD,
         dw_share_mode: DWORD,
@@ -58,7 +61,7 @@ static DETOUR_CREATE_FILE_W: Detour<
         h_template_file: HANDLE,
     ) -> HANDLE,
 > = unsafe {
-    Detour::new(c"CreateFileW",CreateFileW, {
+    Detour::new(c"CreateFileW", CreateFileW, {
         unsafe extern "system" fn new_create_file_w(
             lp_file_name: LPCWSTR,
             dw_desired_access: DWORD,
@@ -69,7 +72,7 @@ static DETOUR_CREATE_FILE_W: Detour<
             h_template_file: HANDLE,
         ) -> HANDLE {
             let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
-            
+
             eprintln!("----CreateFileW---- {:?}", filename);
 
             unsafe { global_client() }.send(PathAccess {
@@ -104,7 +107,7 @@ static DETOUR_CREATE_FILE_A: Detour<
         hTemplateFile: HANDLE,
     ) -> HANDLE,
 > = unsafe {
-    Detour::new(c"CreateFileA",CreateFileA, {
+    Detour::new(c"CreateFileA", CreateFileA, {
         unsafe extern "system" fn new_create_file_a(
             lp_file_name: LPCSTR,
             dw_desired_access: DWORD,
@@ -145,7 +148,7 @@ static DETOUR_CREATE_FILE_2: Detour<
         p_create_ex_params: LPCREATEFILE2_EXTENDED_PARAMETERS,
     ) -> HANDLE,
 > = unsafe {
-    Detour::new(c"CreateFile2",CreateFile2, {
+    Detour::new(c"CreateFile2", CreateFile2, {
         unsafe extern "system" fn new_fn(
             lp_file_name: LPCWSTR,
             dw_desired_access: DWORD,
@@ -237,7 +240,7 @@ static DETOUR_GET_FILE_ATTRIBUTES_W: Detour<
 static DETOUR_GET_FILE_ATTRIBUTES_A: Detour<
     unsafe extern "system" fn(lp_file_name: LPCSTR) -> DWORD,
 > = unsafe {
-    Detour::new(c"GetFileAttributesA",GetFileAttributesA, {
+    Detour::new(c"GetFileAttributesA", GetFileAttributesA, {
         unsafe extern "system" fn new_fn(lp_file_name: LPCSTR) -> DWORD {
             let filename = unsafe { CStr::from_ptr(lp_file_name) };
             unsafe { global_client() }.send(PathAccess {
@@ -322,31 +325,35 @@ static DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_W: Detour<
         h_transaction: HANDLE,
     ) -> BOOL,
 > = unsafe {
-    Detour::new(c"GetFileAttributesTransactedW", GetFileAttributesTransactedW, {
-        unsafe extern "system" fn new_fn(
-            lp_file_name: LPCWSTR,
-            f_info_level_id: GET_FILEEX_INFO_LEVELS,
-            lp_file_information: LPVOID,
-            h_transaction: HANDLE,
-        ) -> BOOL {
-            let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
-            unsafe { global_client() }.send(PathAccess {
-                mode: AccessMode::Read,
-                path: NativeStr::from_wide(filename.as_slice()),
-                dir: None,
-            });
+    Detour::new(
+        c"GetFileAttributesTransactedW",
+        GetFileAttributesTransactedW,
+        {
+            unsafe extern "system" fn new_fn(
+                lp_file_name: LPCWSTR,
+                f_info_level_id: GET_FILEEX_INFO_LEVELS,
+                lp_file_information: LPVOID,
+                h_transaction: HANDLE,
+            ) -> BOOL {
+                let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
+                unsafe { global_client() }.send(PathAccess {
+                    mode: AccessMode::Read,
+                    path: NativeStr::from_wide(filename.as_slice()),
+                    dir: None,
+                });
 
-            unsafe {
-                (DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_W.real())(
-                    lp_file_name,
-                    f_info_level_id,
-                    lp_file_information,
-                    h_transaction,
-                )
+                unsafe {
+                    (DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_W.real())(
+                        lp_file_name,
+                        f_info_level_id,
+                        lp_file_information,
+                        h_transaction,
+                    )
+                }
             }
-        }
-        new_fn
-    })
+            new_fn
+        },
+    )
 };
 
 static DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_A: Detour<
@@ -357,31 +364,35 @@ static DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_A: Detour<
         h_transaction: HANDLE,
     ) -> BOOL,
 > = unsafe {
-    Detour::new(c"GetFileAttributesTransactedA", GetFileAttributesTransactedA, {
-        unsafe extern "system" fn new_fn(
-            lp_file_name: LPCSTR,
-            f_info_level_id: GET_FILEEX_INFO_LEVELS,
-            lp_file_information: LPVOID,
-            h_transaction: HANDLE,
-        ) -> BOOL {
-            let filename = unsafe { CStr::from_ptr(lp_file_name) };
-            unsafe { global_client() }.send(PathAccess {
-                mode: AccessMode::Read,
-                path: NativeStr::from_bytes(filename.to_bytes()),
-                dir: None,
-            });
+    Detour::new(
+        c"GetFileAttributesTransactedA",
+        GetFileAttributesTransactedA,
+        {
+            unsafe extern "system" fn new_fn(
+                lp_file_name: LPCSTR,
+                f_info_level_id: GET_FILEEX_INFO_LEVELS,
+                lp_file_information: LPVOID,
+                h_transaction: HANDLE,
+            ) -> BOOL {
+                let filename = unsafe { CStr::from_ptr(lp_file_name) };
+                unsafe { global_client() }.send(PathAccess {
+                    mode: AccessMode::Read,
+                    path: NativeStr::from_bytes(filename.to_bytes()),
+                    dir: None,
+                });
 
-            unsafe {
-                (DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_A.real())(
-                    lp_file_name,
-                    f_info_level_id,
-                    lp_file_information,
-                    h_transaction,
-                )
+                unsafe {
+                    (DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_A.real())(
+                        lp_file_name,
+                        f_info_level_id,
+                        lp_file_information,
+                        h_transaction,
+                    )
+                }
             }
-        }
-        new_fn
-    })
+            new_fn
+        },
+    )
 };
 
 static DETOUR_DELETE_FILE_W: Detour<unsafe extern "system" fn(lp_file_name: LPCWSTR) -> BOOL> = unsafe {
@@ -463,7 +474,35 @@ static DETOUR_FIND_FIRST_FILE_A: Detour<
     })
 };
 
-// static DETOUR_GET_FILE_INFORMATION_BY_NAME: Detour<
+// Added in Windows 11 24h2.
+// Used in libuv: https://github.com/libuv/libuv/blob/b00c5d1a09c094020044e79e19f478a25b8e1431/src/win/winapi.c#L142
+static DETOUR_GET_FILE_INFORMATION_BY_NAME: Detour<
+    unsafe extern "system" fn(
+        file_name: PCWSTR,
+        file_information_class: c_int, // FILE_INFO_BY_NAME_CLASS,
+        file_info_buffer: PVOID,
+        file_info_buffer_size: ULONG,
+    ) -> BOOL,
+> = unsafe {
+    Detour::dynamic(c"GetFileInformationByName", {
+        unsafe extern "system" fn new_fn(
+            file_name: PCWSTR,
+            file_information_class: c_int, // FILE_INFO_BY_NAME_CLASS,
+            file_info_buffer: PVOID,
+            file_info_buffer_size: ULONG,
+        ) -> BOOL {
+            unsafe {
+                (DETOUR_GET_FILE_INFORMATION_BY_NAME.real())(
+                    file_name,
+                    file_information_class,
+                    file_info_buffer,
+                    file_info_buffer_size,
+                )
+            }
+        }
+        new_fn
+    })
+};
 
 #[allow(unused)]
 pub const DETOURS: &[DetourAny] = &[
@@ -481,4 +520,5 @@ pub const DETOURS: &[DetourAny] = &[
     DETOUR_DELETE_FILE_A.as_any(),
     DETOUR_FIND_FIRST_FILE_W.as_any(),
     DETOUR_FIND_FIRST_FILE_A.as_any(),
+    DETOUR_GET_FILE_INFORMATION_BY_NAME.as_any(),
 ];

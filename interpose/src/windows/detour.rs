@@ -25,8 +25,6 @@ pub struct Detour<T> {
     new: T,
 }
 
-pub struct DetourAttachContext {}
-
 impl<T: Copy> Detour<T> {
     pub const unsafe fn new(symbol_name: &'static CStr, target: T, new: T) -> Self {
         Detour {
@@ -97,11 +95,16 @@ impl DetourAny {
                 unsafe { *self.target = symbol_in_kernel32.cast() };
             }
         }
+        eprintln!(
+            "attaching {:?} {:?}",
+            unsafe { *self.symbol_name },
+            unsafe { *self.target }
+        );
         if unsafe { *self.target }.is_null() {
             // dynamic symbol not found, skip attaching
             return Ok(());
         }
-        ck_long(unsafe { DetourAttach(self.target.cast(), *self.new) })?;
+        ck_long(unsafe { DetourAttach(self.target, *self.new) })?;
         Ok(())
     }
     pub unsafe fn detach(&self) -> SysResult<()> {
@@ -109,6 +112,6 @@ impl DetourAny {
             // dynamic symbol not found, skip detaching
             return Ok(());
         }
-        ck_long(unsafe { DetourDetach(self.target.cast(), *self.new) })
+        ck_long(unsafe { DetourDetach(self.target, *self.new) })
     }
 }

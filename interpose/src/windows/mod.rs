@@ -55,7 +55,6 @@ fn dll_main(_hinstance: HINSTANCE, reason: u32) -> winsafe::SysResult<()> {
             }
 
             ck_long(unsafe { DetourTransactionCommit() })?;
-            eprintln!("attached");
         }
         winnt::DLL_PROCESS_DETACH => {
             ck(unsafe { DetourTransactionBegin() })?;

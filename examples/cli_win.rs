@@ -12,14 +12,14 @@ async fn main() -> io::Result<()> {
     // dbg!((createfilew, CreateFileW as *const c_void));
     
     // C:\\Users\\branchseer\\AppData\\Local\\mise\\installs\\node\\24.1.0\\node.exe
-    let mut cmd = Command::new("C:\\Users\\branchseer\\AppData\\Local\\mise\\installs\\node\\24.1.0\\node.exe");
+    let mut cmd = Command::new("cmd");
     cmd.args([
         // "/c",
         //  "cmd", "/c",
         // "target/debug/examples/fsacc.exe"
         // "/c", "node -e require('./zzz/balabala1')",
        "-e", "require('./zzz/balabala1')",
-        // "/c", "type x.sh"
+        "/c", "type x.sh"
         // "node", "--version"
     ]);
     // cmd.stdin(Stdio::null());
