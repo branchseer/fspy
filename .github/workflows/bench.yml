@@ -1,0 +1,26 @@
+name: Bench
+
+on:
+    workflow_dispatch
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Prepare Ecosystem
+      run: yarn set version berry && yarn install
+      working-directory: ecosystem/AFFiNE
+    - name: Build
+      run: cargo build --release --example cli
+    - name: Prewarm
+      run: yarn lint:ox && yarn lint:ox && yarn lint:ox 
+      working-directory: ecosystem/AFFiNE
+    - name: Compare
+      run: yarn lint:ox && ..\..\target\release\examples\cli -o nul yarn lint:ox
+      working-directory: ecosystem/AFFiNE
