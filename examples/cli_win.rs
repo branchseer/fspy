@@ -1,4 +1,4 @@
-use std::{ffi::c_void, io, pin::pin, process::Stdio};
+use std::{ffi::c_void, fs::File, io::{self, Write}, pin::pin, process::Stdio};
 
 use futures_util::future::{select, Either};
 use tokio::process::Command;
@@ -7,19 +7,14 @@ use winapi::um::{fileapi::CreateFileW, libloaderapi::{GetProcAddress, LoadLibrar
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    // let module = unsafe { LoadLibraryA(c"kernelbase.dll".as_ptr()) };
-    // let createfilew = unsafe { GetProcAddress(module, c"CreateFile2".as_ptr()) };
-    // dbg!((createfilew, CreateFileW as *const c_void));
-    
-    // C:\\Users\\branchseer\\AppData\\Local\\mise\\installs\\node\\24.1.0\\node.exe
     let mut cmd = Command::new("cmd");
     cmd.args([
         // "/c",
         //  "cmd", "/c",
         // "target/debug/examples/fsacc.exe"
-        // "/c", "node -e require('./zzz/balabala1')",
-       "-e", "require('./zzz/balabala1')",
-        "/c", "type x.sh"
+        "/c", "node -e require('./zzz/balabala1')",
+    //    "-e", "require('./zzz/balabala1')",
+        // "/c", "type .vscosadadde\\dasdass.json"
         // "node", "--version"
     ]);
     // cmd.stdin(Stdio::null());

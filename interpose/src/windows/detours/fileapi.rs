@@ -13,12 +13,13 @@ use winapi::{
     },
     um::{
         fileapi::{
-            CreateFile2, CreateFileA, DeleteFileA, DeleteFileW, FindFirstFileA, FindFirstFileW,
-            GetFileAttributesA, GetFileAttributesExA, GetFileAttributesExW, GetFileAttributesW,
-            LPCREATEFILE2_EXTENDED_PARAMETERS,
+            CreateFile2, CreateFileA, DeleteFileA, DeleteFileW, FindFirstFileA, FindFirstFileExA,
+            FindFirstFileExW, FindFirstFileW, GetFileAttributesA, GetFileAttributesExA,
+            GetFileAttributesExW, GetFileAttributesW, LPCREATEFILE2_EXTENDED_PARAMETERS,
         },
         minwinbase::{
-            GET_FILEEX_INFO_LEVELS, LPSECURITY_ATTRIBUTES, LPWIN32_FIND_DATAA, LPWIN32_FIND_DATAW,
+            FINDEX_INFO_LEVELS, FINDEX_SEARCH_OPS, GET_FILEEX_INFO_LEVELS, LPSECURITY_ATTRIBUTES,
+            LPWIN32_FIND_DATAA, LPWIN32_FIND_DATAW,
         },
         winbase::{
             GetFileAttributesTransactedA, GetFileAttributesTransactedW, LPOFSTRUCT, OpenFile,
@@ -505,6 +506,52 @@ static DETOUR_FIND_FIRST_FILE_W: Detour<
     })
 };
 
+static DETOUR_FIND_FIRST_FILE_EX_W: Detour<
+    unsafe extern "system" fn(
+        lp_file_name: LPCWSTR,
+        f_info_level_id: FINDEX_INFO_LEVELS,
+        lp_find_file_data: LPVOID,
+        f_search_op: FINDEX_SEARCH_OPS,
+        lp_search_filter: LPVOID,
+        dw_additional_flags: DWORD,
+    ) -> HANDLE,
+> = unsafe {
+    Detour::new(c"FindFirstFileExW", FindFirstFileExW, {
+        unsafe extern "system" fn new_fn(
+            lp_file_name: LPCWSTR,
+            f_info_level_id: FINDEX_INFO_LEVELS,
+            lp_find_file_data: LPVOID,
+            f_search_op: FINDEX_SEARCH_OPS,
+            lp_search_filter: LPVOID,
+            dw_additional_flags: DWORD,
+        ) -> HANDLE {
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: AccessMode::Read,
+                        path: NativeStr::from_wide(filename.as_slice()),
+                        dir: None,
+                    });
+                }
+            }
+
+            unsafe {
+                (DETOUR_FIND_FIRST_FILE_EX_W.real())(
+                    lp_file_name,
+                    f_info_level_id,
+                    lp_find_file_data,
+                    f_search_op,
+                    lp_search_filter,
+                    dw_additional_flags,
+                )
+            }
+        }
+        new_fn
+    })
+};
+
 static DETOUR_FIND_FIRST_FILE_A: Detour<
     unsafe extern "system" fn(
         lp_file_name: LPCSTR,
@@ -533,6 +580,52 @@ static DETOUR_FIND_FIRST_FILE_A: Detour<
     })
 };
 
+static DETOUR_FIND_FIRST_FILE_EX_A: Detour<
+    unsafe extern "system" fn(
+        lp_file_name: LPCSTR,
+        f_info_level_id: FINDEX_INFO_LEVELS,
+        lp_find_file_data: LPVOID,
+        f_search_op: FINDEX_SEARCH_OPS,
+        lp_search_filter: LPVOID,
+        dw_additional_flags: DWORD,
+    ) -> HANDLE,
+> = unsafe {
+    Detour::new(c"FindFirstFileExA", FindFirstFileExA, {
+        unsafe extern "system" fn new_fn(
+            lp_file_name: LPCSTR,
+            f_info_level_id: FINDEX_INFO_LEVELS,
+            lp_find_file_data: LPVOID,
+            f_search_op: FINDEX_SEARCH_OPS,
+            lp_search_filter: LPVOID,
+            dw_additional_flags: DWORD,
+        ) -> HANDLE {
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { CStr::from_ptr(lp_file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: AccessMode::Read,
+                        path: NativeStr::from_bytes(filename.to_bytes()),
+                        dir: None,
+                    });
+                }
+            }
+
+            unsafe {
+                (DETOUR_FIND_FIRST_FILE_EX_A.real())(
+                    lp_file_name,
+                    f_info_level_id,
+                    lp_find_file_data,
+                    f_search_op,
+                    lp_search_filter,
+                    dw_additional_flags,
+                )
+            }
+        }
+        new_fn
+    })
+};
+
 // Added in Windows 11 24h2.
 // Used in libuv: https://github.com/libuv/libuv/blob/b00c5d1a09c094020044e79e19f478a25b8e1431/src/win/winapi.c#L142
 static DETOUR_GET_FILE_INFORMATION_BY_NAME: Detour<
@@ -550,6 +643,18 @@ static DETOUR_GET_FILE_INFORMATION_BY_NAME: Detour<
             file_info_buffer: PVOID,
             file_info_buffer_size: ULONG,
         ) -> BOOL {
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { U16CStr::from_ptr_str(file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: AccessMode::Read,
+                        path: NativeStr::from_wide(filename.as_slice()),
+                        dir: None,
+                    });
+                }
+            }
+
             unsafe {
                 (DETOUR_GET_FILE_INFORMATION_BY_NAME.real())(
                     file_name,
@@ -577,6 +682,8 @@ pub const DETOURS: &[DetourAny] = &[
     DETOUR_DELETE_FILE_W.as_any(),
     DETOUR_DELETE_FILE_A.as_any(),
     DETOUR_FIND_FIRST_FILE_W.as_any(),
+    DETOUR_FIND_FIRST_FILE_EX_W.as_any(),
     DETOUR_FIND_FIRST_FILE_A.as_any(),
+    DETOUR_FIND_FIRST_FILE_EX_A.as_any(),
     DETOUR_GET_FILE_INFORMATION_BY_NAME.as_any(),
 ];
