@@ -1,15 +1,11 @@
-use std::{
-    ffi::{CStr, c_int},
-    slice,
-};
+use std::ffi::{CStr, c_int};
 
-use arrayvec::ArrayVec;
 use fspy_shared::ipc::{AccessMode, NativeStr, PathAccess};
-use smallvec::SmallVec;
-use widestring::{U16CStr, U16Str};
+
+use widestring::U16CStr;
 use winapi::{
     shared::{
-        minwindef::{BOOL, DWORD, HFILE, LPVOID, MAX_PATH, UINT},
+        minwindef::{BOOL, DWORD, HFILE, LPVOID, UINT},
         ntdef::{
             HANDLE, LPCSTR, LPCWSTR, PCWSTR, PHANDLE, PLARGE_INTEGER, POBJECT_ATTRIBUTES,
             PUNICODE_STRING, PVOID, ULONG, UNICODE_STRING,
@@ -19,23 +15,21 @@ use winapi::{
         fileapi::{
             CreateFile2, CreateFileA, DeleteFileA, DeleteFileW, FindFirstFileA, FindFirstFileW,
             GetFileAttributesA, GetFileAttributesExA, GetFileAttributesExW, GetFileAttributesW,
-            GetFinalPathNameByHandleW, LPCREATEFILE2_EXTENDED_PARAMETERS,
+            LPCREATEFILE2_EXTENDED_PARAMETERS,
         },
         minwinbase::{
             GET_FILEEX_INFO_LEVELS, LPSECURITY_ATTRIBUTES, LPWIN32_FIND_DATAA, LPWIN32_FIND_DATAW,
         },
         winbase::{
-            CreateFileMappingA, GetFileAttributesTransactedA, GetFileAttributesTransactedW,
-            LPOFSTRUCT, OpenFile, OpenFileMappingA,
+            GetFileAttributesTransactedA, GetFileAttributesTransactedW, LPOFSTRUCT, OpenFile,
         },
-        winnt::{ACCESS_MASK, GENERIC_READ, GENERIC_WRITE},
     },
 };
 
 use crate::windows::{
     client::global_client,
     detour::{Detour, DetourAny},
-    winapi_utils::{access_mask_to_mode, get_path_name, get_u16_str},
+    winapi_utils::access_mask_to_mode,
 };
 
 unsafe extern "system" {
@@ -71,15 +65,17 @@ static DETOUR_CREATE_FILE_W: Detour<
             dw_flags_and_attributes: DWORD,
             h_template_file: HANDLE,
         ) -> HANDLE {
-            let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
-
-            eprintln!("----CreateFileW---- {:?}", filename);
-
-            unsafe { global_client() }.send(PathAccess {
-                mode: access_mask_to_mode(dw_desired_access),
-                path: NativeStr::from_wide(filename.as_slice()),
-                dir: None,
-            });
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: access_mask_to_mode(dw_desired_access),
+                        path: NativeStr::from_wide(filename.as_slice()),
+                        dir: None,
+                    })
+                }
+            }
             unsafe {
                 (DETOUR_CREATE_FILE_W.real())(
                     lp_file_name,
@@ -117,12 +113,17 @@ static DETOUR_CREATE_FILE_A: Detour<
             dw_flags_and_attributes: DWORD,
             h_template_file: HANDLE,
         ) -> HANDLE {
-            let filename = unsafe { CStr::from_ptr(lp_file_name) };
-            unsafe { global_client() }.send(PathAccess {
-                mode: access_mask_to_mode(dw_desired_access),
-                path: NativeStr::from_bytes(filename.to_bytes()),
-                dir: None,
-            });
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { CStr::from_ptr(lp_file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: access_mask_to_mode(dw_desired_access),
+                        path: NativeStr::from_bytes(filename.to_bytes()),
+                        dir: None,
+                    })
+                };
+            }
             unsafe {
                 (DETOUR_CREATE_FILE_A.real())(
                     lp_file_name,
@@ -156,13 +157,17 @@ static DETOUR_CREATE_FILE_2: Detour<
             dw_creation_disposition: DWORD,
             p_create_ex_params: LPCREATEFILE2_EXTENDED_PARAMETERS,
         ) -> HANDLE {
-            let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
-
-            unsafe { global_client() }.send(PathAccess {
-                mode: access_mask_to_mode(dw_desired_access),
-                path: NativeStr::from_wide(filename.as_slice()),
-                dir: None,
-            });
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: access_mask_to_mode(dw_desired_access),
+                        path: NativeStr::from_wide(filename.as_slice()),
+                        dir: None,
+                    })
+                };
+            }
             unsafe {
                 (DETOUR_CREATE_FILE_2.real())(
                     lp_file_name,
@@ -190,28 +195,33 @@ static DETOUR_OPEN_FILE: Detour<
             lp_re_open_buff: LPOFSTRUCT,
             u_style: UINT,
         ) -> HFILE {
-            let filename = unsafe { CStr::from_ptr(lp_file_name) };
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { CStr::from_ptr(lp_file_name) };
 
-            // https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-openfile
-            const OF_WRITE: UINT = 0x00000001;
-            const OF_READWRITE: UINT = 0x00000002;
-            const OF_DELETE: UINT = 0x00000200;
-            const OF_CREATE: UINT = 0x00001000;
+                // https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-openfile
+                const OF_WRITE: UINT = 0x00000001;
+                const OF_READWRITE: UINT = 0x00000002;
+                const OF_DELETE: UINT = 0x00000200;
+                const OF_CREATE: UINT = 0x00001000;
 
-            unsafe { global_client() }.send(PathAccess {
-                mode: if u_style & OF_READWRITE != 0 {
-                    AccessMode::ReadWrite
-                } else if u_style & OF_WRITE != 0
-                    || u_style & OF_DELETE != 0
-                    || u_style & OF_CREATE != 0
-                {
-                    AccessMode::Write
-                } else {
-                    AccessMode::Read
-                },
-                path: NativeStr::from_bytes(filename.to_bytes()),
-                dir: None,
-            });
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: if u_style & OF_READWRITE != 0 {
+                            AccessMode::ReadWrite
+                        } else if u_style & OF_WRITE != 0
+                            || u_style & OF_DELETE != 0
+                            || u_style & OF_CREATE != 0
+                        {
+                            AccessMode::Write
+                        } else {
+                            AccessMode::Read
+                        },
+                        path: NativeStr::from_bytes(filename.to_bytes()),
+                        dir: None,
+                    })
+                };
+            }
 
             unsafe { (DETOUR_OPEN_FILE.real())(lp_file_name, lp_re_open_buff, u_style) }
         }
@@ -224,12 +234,17 @@ static DETOUR_GET_FILE_ATTRIBUTES_W: Detour<
 > = unsafe {
     Detour::new(c"GetFileAttributesW", GetFileAttributesW, {
         unsafe extern "system" fn new_fn(lp_file_name: LPCWSTR) -> DWORD {
-            let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
-            unsafe { global_client() }.send(PathAccess {
-                mode: AccessMode::Read,
-                path: NativeStr::from_wide(filename.as_slice()),
-                dir: None,
-            });
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: AccessMode::Read,
+                        path: NativeStr::from_wide(filename.as_slice()),
+                        dir: None,
+                    })
+                };
+            }
 
             unsafe { (DETOUR_GET_FILE_ATTRIBUTES_W.real())(lp_file_name) }
         }
@@ -242,12 +257,17 @@ static DETOUR_GET_FILE_ATTRIBUTES_A: Detour<
 > = unsafe {
     Detour::new(c"GetFileAttributesA", GetFileAttributesA, {
         unsafe extern "system" fn new_fn(lp_file_name: LPCSTR) -> DWORD {
-            let filename = unsafe { CStr::from_ptr(lp_file_name) };
-            unsafe { global_client() }.send(PathAccess {
-                mode: AccessMode::Read,
-                path: NativeStr::from_bytes(filename.to_bytes()),
-                dir: None,
-            });
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { CStr::from_ptr(lp_file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: AccessMode::Read,
+                        path: NativeStr::from_bytes(filename.to_bytes()),
+                        dir: None,
+                    });
+                }
+            }
 
             unsafe { (DETOUR_GET_FILE_ATTRIBUTES_A.real())(lp_file_name) }
         }
@@ -268,12 +288,17 @@ static DETOUR_GET_FILE_ATTRIBUTES_EX_W: Detour<
             f_info_level_id: GET_FILEEX_INFO_LEVELS,
             lp_file_information: LPVOID,
         ) -> BOOL {
-            let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
-            unsafe { global_client() }.send(PathAccess {
-                mode: AccessMode::Read,
-                path: NativeStr::from_wide(filename.as_slice()),
-                dir: None,
-            });
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: AccessMode::Read,
+                        path: NativeStr::from_wide(filename.as_slice()),
+                        dir: None,
+                    });
+                }
+            }
 
             unsafe {
                 (DETOUR_GET_FILE_ATTRIBUTES_EX_W.real())(
@@ -299,12 +324,17 @@ static DETOUR_GET_FILE_ATTRIBUTES_EX_A: Detour<
             f_info_level_id: GET_FILEEX_INFO_LEVELS,
             lp_file_information: LPVOID,
         ) -> BOOL {
-            let filename = unsafe { CStr::from_ptr(lp_file_name) };
-            unsafe { global_client() }.send(PathAccess {
-                mode: AccessMode::Read,
-                path: NativeStr::from_bytes(filename.to_bytes()),
-                dir: None,
-            });
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { CStr::from_ptr(lp_file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: AccessMode::Read,
+                        path: NativeStr::from_bytes(filename.to_bytes()),
+                        dir: None,
+                    });
+                }
+            }
             unsafe {
                 (DETOUR_GET_FILE_ATTRIBUTES_EX_A.real())(
                     lp_file_name,
@@ -335,12 +365,17 @@ static DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_W: Detour<
                 lp_file_information: LPVOID,
                 h_transaction: HANDLE,
             ) -> BOOL {
-                let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
-                unsafe { global_client() }.send(PathAccess {
-                    mode: AccessMode::Read,
-                    path: NativeStr::from_wide(filename.as_slice()),
-                    dir: None,
-                });
+                let sender = unsafe { global_client() }.sender();
+                if let Some(sender) = &sender {
+                    let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
+                    unsafe {
+                        sender.send(PathAccess {
+                            mode: AccessMode::Read,
+                            path: NativeStr::from_wide(filename.as_slice()),
+                            dir: None,
+                        });
+                    }
+                }
 
                 unsafe {
                     (DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_W.real())(
@@ -374,12 +409,17 @@ static DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_A: Detour<
                 lp_file_information: LPVOID,
                 h_transaction: HANDLE,
             ) -> BOOL {
-                let filename = unsafe { CStr::from_ptr(lp_file_name) };
-                unsafe { global_client() }.send(PathAccess {
-                    mode: AccessMode::Read,
-                    path: NativeStr::from_bytes(filename.to_bytes()),
-                    dir: None,
-                });
+                let sender = unsafe { global_client() }.sender();
+                if let Some(sender) = &sender {
+                    let filename = unsafe { CStr::from_ptr(lp_file_name) };
+                    unsafe {
+                        sender.send(PathAccess {
+                            mode: AccessMode::Read,
+                            path: NativeStr::from_bytes(filename.to_bytes()),
+                            dir: None,
+                        });
+                    }
+                }
 
                 unsafe {
                     (DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_A.real())(
@@ -398,12 +438,17 @@ static DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_A: Detour<
 static DETOUR_DELETE_FILE_W: Detour<unsafe extern "system" fn(lp_file_name: LPCWSTR) -> BOOL> = unsafe {
     Detour::new(c"DeleteFileW", DeleteFileW, {
         unsafe extern "system" fn new_fn(lp_file_name: LPCWSTR) -> BOOL {
-            let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
-            unsafe { global_client() }.send(PathAccess {
-                mode: AccessMode::Write,
-                path: NativeStr::from_wide(filename.as_slice()),
-                dir: None,
-            });
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: AccessMode::Write,
+                        path: NativeStr::from_wide(filename.as_slice()),
+                        dir: None,
+                    });
+                }
+            }
 
             unsafe { (DETOUR_DELETE_FILE_W.real())(lp_file_name) }
         }
@@ -413,12 +458,17 @@ static DETOUR_DELETE_FILE_W: Detour<unsafe extern "system" fn(lp_file_name: LPCW
 static DETOUR_DELETE_FILE_A: Detour<unsafe extern "system" fn(lp_file_name: LPCSTR) -> BOOL> = unsafe {
     Detour::new(c"DeleteFileA", DeleteFileA, {
         unsafe extern "system" fn new_fn(lp_file_name: LPCSTR) -> BOOL {
-            let filename = unsafe { CStr::from_ptr(lp_file_name) };
-            unsafe { global_client() }.send(PathAccess {
-                mode: AccessMode::Write,
-                path: NativeStr::from_bytes(filename.to_bytes()),
-                dir: None,
-            });
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { CStr::from_ptr(lp_file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: AccessMode::Write,
+                        path: NativeStr::from_bytes(filename.to_bytes()),
+                        dir: None,
+                    });
+                }
+            }
 
             unsafe { (DETOUR_DELETE_FILE_A.real())(lp_file_name) }
         }
@@ -437,12 +487,17 @@ static DETOUR_FIND_FIRST_FILE_W: Detour<
             lp_file_name: LPCWSTR,
             lp_find_file_data: LPWIN32_FIND_DATAW,
         ) -> HANDLE {
-            let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
-            unsafe { global_client() }.send(PathAccess {
-                mode: AccessMode::Read,
-                path: NativeStr::from_wide(filename.as_slice()),
-                dir: None,
-            });
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: AccessMode::Read,
+                        path: NativeStr::from_wide(filename.as_slice()),
+                        dir: None,
+                    });
+                }
+            }
 
             unsafe { (DETOUR_FIND_FIRST_FILE_W.real())(lp_file_name, lp_find_file_data) }
         }
@@ -461,13 +516,17 @@ static DETOUR_FIND_FIRST_FILE_A: Detour<
             lp_file_name: LPCSTR,
             lp_find_file_data: LPWIN32_FIND_DATAA,
         ) -> HANDLE {
-            let filename = unsafe { CStr::from_ptr(lp_file_name) };
-            unsafe { global_client() }.send(PathAccess {
-                mode: AccessMode::Read,
-                path: NativeStr::from_bytes(filename.to_bytes()),
-                dir: None,
-            });
-
+            let sender = unsafe { global_client() }.sender();
+            if let Some(sender) = &sender {
+                let filename = unsafe { CStr::from_ptr(lp_file_name) };
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: AccessMode::Read,
+                        path: NativeStr::from_bytes(filename.to_bytes()),
+                        dir: None,
+                    });
+                }
+            }
             unsafe { (DETOUR_FIND_FIRST_FILE_A.real())(lp_file_name, lp_find_file_data) }
         }
         new_fn
@@ -504,7 +563,6 @@ static DETOUR_GET_FILE_INFORMATION_BY_NAME: Detour<
     })
 };
 
-#[allow(unused)]
 pub const DETOURS: &[DetourAny] = &[
     DETOUR_CREATE_FILE_W.as_any(),
     DETOUR_CREATE_FILE_A.as_any(),

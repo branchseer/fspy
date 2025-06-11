@@ -5,18 +5,14 @@ use crate::windows::{
 
 use fspy_shared::{
     ipc::{AccessMode, NativeStr, PathAccess},
-    windows::PAYLOAD_ID,
 };
-use ms_detours::{DetourCopyPayloadToProcess, DetourCreateProcessWithDllExW};
+use ms_detours::DetourCreateProcessWithDllExW;
 use widestring::U16CStr;
 use winapi::{
     shared::minwindef::{BOOL, DWORD, LPVOID},
     um::{
         minwinbase::LPSECURITY_ATTRIBUTES,
-        processthreadsapi::{
-            CreateProcessW as Real_CreateProcessW, LPPROCESS_INFORMATION, LPSTARTUPINFOW,
-            ResumeThread,
-        },
+        processthreadsapi::{CreateProcessW, LPPROCESS_INFORMATION, LPSTARTUPINFOW, ResumeThread},
         winbase::CREATE_SUSPENDED,
         winnt::{LPCWSTR, LPWSTR},
     },
@@ -35,91 +31,115 @@ static DETOUR_CREATE_PROCESS_W: Detour<
         LPSTARTUPINFOW,
         LPPROCESS_INFORMATION,
     ) -> i32,
-> = unsafe { Detour::new(c"CreateProcessW", Real_CreateProcessW, CreateProcessW) };
+> = unsafe {
+    Detour::new(c"CreateProcessW", CreateProcessW, {
+        unsafe extern "system" fn new_fn(
+            lp_application_name: LPCWSTR,
+            lp_command_line: LPWSTR,
+            lp_process_attributes: LPSECURITY_ATTRIBUTES,
+            lp_thread_attributes: LPSECURITY_ATTRIBUTES,
+            b_inherit_handles: BOOL,
+            dw_creation_flags: DWORD,
+            lp_environment: LPVOID,
+            lp_current_directory: LPCWSTR,
+            lp_startup_info: LPSTARTUPINFOW,
+            lp_process_information: LPPROCESS_INFORMATION,
+        ) -> BOOL {
+            let client = unsafe { global_client() };
+            let Some(sender) = client.sender() else {
+                // Detect re-entrance and avoid double hooking
+                return unsafe {
+                    (DETOUR_CREATE_PROCESS_W.real())(
+                        lp_application_name,
+                        lp_command_line,
+                        lp_process_attributes,
+                        lp_thread_attributes,
+                        b_inherit_handles,
+                        dw_creation_flags | CREATE_SUSPENDED,
+                        lp_environment,
+                        lp_current_directory,
+                        lp_startup_info,
+                        lp_process_information,
+                    )
+                };
+            };
 
-unsafe extern "system" fn CreateProcessW(
-    lpApplicationName: LPCWSTR,
-    lpCommandLine: LPWSTR,
-    lpProcessAttributes: LPSECURITY_ATTRIBUTES,
-    lpThreadAttributes: LPSECURITY_ATTRIBUTES,
-    bInheritHandles: BOOL,
-    dwCreationFlags: DWORD,
-    lpEnvironment: LPVOID,
-    lpCurrentDirectory: LPCWSTR,
-    lpStartupInfo: LPSTARTUPINFOW,
-    lpProcessInformation: LPPROCESS_INFORMATION,
-) -> BOOL {
+            if !lp_application_name.is_null() {
+                unsafe {
+                    sender.send(PathAccess {
+                        mode: AccessMode::Read,
+                        path: NativeStr::from_wide(
+                            U16CStr::from_ptr_str(lp_application_name).as_slice(),
+                        ),
+                        dir: None,
+                    });
+                }
+            }
 
-    let client = unsafe { global_client() };
-    if !lpApplicationName.is_null() {
-        client.send(PathAccess {
-            mode: AccessMode::Read,
-            path: NativeStr::from_wide(
-                unsafe { U16CStr::from_ptr_str(lpApplicationName) }.as_slice(),
-            ),
-            dir: None,
-        });
-    }
-    unsafe extern "system" fn CreateProcessWithPayloadW(
-        lpApplicationName: LPCWSTR,
-        lpCommandLine: LPWSTR,
-        lpProcessAttributes: LPSECURITY_ATTRIBUTES,
-        lpThreadAttributes: LPSECURITY_ATTRIBUTES,
-        bInheritHandles: BOOL,
-        dwCreationFlags: DWORD,
-        lpEnvironment: LPVOID,
-        lpCurrentDirectory: LPCWSTR,
-        lpStartupInfo: LPSTARTUPINFOW,
-        lpProcessInformation: LPPROCESS_INFORMATION,
-    ) -> BOOL {
-        let ret = unsafe {
-            (DETOUR_CREATE_PROCESS_W.real())(
-                lpApplicationName,
-                lpCommandLine,
-                lpProcessAttributes,
-                lpThreadAttributes,
-                bInheritHandles,
-                dwCreationFlags | CREATE_SUSPENDED,
-                lpEnvironment,
-                lpCurrentDirectory,
-                lpStartupInfo,
-                lpProcessInformation,
-            )
-        };
-        if ret == 0 {
-            return 0;
-        }
+            unsafe extern "system" fn CreateProcessWithPayloadW(
+                lp_application_name: LPCWSTR,
+                lp_command_line: LPWSTR,
+                lp_process_attributes: LPSECURITY_ATTRIBUTES,
+                lp_thread_attributes: LPSECURITY_ATTRIBUTES,
+                b_inherit_handles: BOOL,
+                dw_creation_flags: DWORD,
+                lp_environment: LPVOID,
+                lp_current_directory: LPCWSTR,
+                lp_startup_info: LPSTARTUPINFOW,
+                lp_process_information: LPPROCESS_INFORMATION,
+            ) -> BOOL {
+                let ret = unsafe {
+                    (DETOUR_CREATE_PROCESS_W.real())(
+                        lp_application_name,
+                        lp_command_line,
+                        lp_process_attributes,
+                        lp_thread_attributes,
+                        b_inherit_handles,
+                        dw_creation_flags | CREATE_SUSPENDED,
+                        lp_environment,
+                        lp_current_directory,
+                        lp_startup_info,
+                        lp_process_information,
+                    )
+                };
+                if ret == 0 {
+                    return 0;
+                }
 
-        let ret = unsafe { global_client().prepare_child_process((*lpProcessInformation).hProcess) };
-        
-        if ret == 0 {
-            return 0;
-        }
-        if dwCreationFlags & CREATE_SUSPENDED == 0 {
-            let ret = unsafe { ResumeThread((*lpProcessInformation).hThread) };
-            if ret == -1i32 as DWORD {
-                return 0;
+                let ret = unsafe {
+                    global_client().prepare_child_process((*lp_process_information).hProcess)
+                };
+
+                if ret == 0 {
+                    return 0;
+                }
+                if dw_creation_flags & CREATE_SUSPENDED == 0 {
+                    let ret = unsafe { ResumeThread((*lp_process_information).hThread) };
+                    if ret == -1i32 as DWORD {
+                        return 0;
+                    }
+                }
+                ret
+            }
+
+            unsafe {
+                DetourCreateProcessWithDllExW(
+                    lp_application_name,
+                    lp_command_line,
+                    lp_process_attributes,
+                    lp_thread_attributes,
+                    b_inherit_handles,
+                    dw_creation_flags,
+                    lp_environment,
+                    lp_current_directory,
+                    lp_startup_info,
+                    lp_process_information,
+                    client.asni_dll_path().as_ptr().cast(),
+                    Some(CreateProcessWithPayloadW),
+                )
             }
         }
-        ret
-    }
-
-    unsafe {
-        DetourCreateProcessWithDllExW(
-            lpApplicationName,
-            lpCommandLine,
-            lpProcessAttributes,
-            lpThreadAttributes,
-            bInheritHandles,
-            dwCreationFlags,
-            lpEnvironment,
-            lpCurrentDirectory,
-            lpStartupInfo,
-            lpProcessInformation,
-            client.asni_dll_path().as_ptr().cast(),
-            Some(CreateProcessWithPayloadW),
-        )
-    }
-}
-
+        new_fn
+    })
+};
 pub const DETOURS: &[DetourAny] = &[DETOUR_CREATE_PROCESS_W.as_any()];

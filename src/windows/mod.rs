@@ -119,7 +119,7 @@ pub async fn spawn(
             let (path_access, decoded_len) =
                 borrow_decode_from_slice::<'_, PathAccess, _>(msg, BINCODE_CONFIG).unwrap();
             assert_eq!(decoded_len, msg.len());
-            // eprintln!("{:?}", path_access);
+            eprintln!("{:?}", path_access);
         }
     };
 

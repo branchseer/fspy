@@ -95,11 +95,6 @@ impl DetourAny {
                 unsafe { *self.target = symbol_in_kernel32.cast() };
             }
         }
-        eprintln!(
-            "attaching {:?} {:?}",
-            unsafe { *self.symbol_name },
-            unsafe { *self.target }
-        );
         if unsafe { *self.target }.is_null() {
             // dynamic symbol not found, skip attaching
             return Ok(());
