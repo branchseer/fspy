@@ -113,10 +113,12 @@ pub async fn spawn(mut command: Command) -> io::Result<TracedProcess> {
 
     let pipe_name = format!(r"\\.\pipe\fspy_ipc_{:x}", luid()?);
 
-    let mut pipe_receiver = ServerOptions::new()
+    let pipe_receiver = ServerOptions::new()
         .pipe_mode(PipeMode::Message)
         .access_outbound(false)
         .access_inbound(true)
+        .in_buffer_size(1024)
+        // .out_buffer_size(100 * 1024 * 1024)
         .create(&pipe_name)?;
 
     let connect_fut = pipe_receiver.connect();

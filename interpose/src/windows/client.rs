@@ -1,10 +1,5 @@
 use std::{
-    cell::SyncUnsafeCell,
-    ffi::{CStr, c_void},
-    fs::OpenOptions,
-    mem::MaybeUninit,
-    os::windows::io::{AsHandle, AsRawHandle, OwnedHandle, RawHandle},
-    ptr::{null, null_mut},
+    cell::SyncUnsafeCell, ffi::{c_void, CStr}, fs::OpenOptions, hint::black_box, mem::MaybeUninit, os::windows::io::{AsHandle, AsRawHandle, OwnedHandle, RawHandle}, ptr::{null, null_mut}
 };
 
 use bincode::{borrow_decode_from_slice, encode_into_std_write, encode_to_vec};
@@ -64,9 +59,12 @@ pub struct PathAccessSender {
 
 impl PathAccessSender {
     pub unsafe fn send(&self, access: PathAccess<'_>) {
+       
         // TODO: send cwd as dir if the path is relative
         let mut buf = SmallVec::<u8, 256>::new();
         encode_into_std_write(access, &mut buf, BINCODE_CONFIG).unwrap();
+        // black_box(buf);
+        //  return;
         unsafe { write_pipe_message(self.pipe_handle, buf.as_slice()) };
     }
 }
