@@ -1,0 +1,3 @@
+[submodule "ecosystem/AFFiNE"]
+	path = ecosystem/AFFiNE
+	url = https://github.com/toeverything/AFFiNE/
