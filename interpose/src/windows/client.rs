@@ -64,9 +64,7 @@ pub struct PathAccessSender {
 
 impl PathAccessSender {
     pub unsafe fn send(&self, access: PathAccess<'_>) {
-        if !std::env::current_exe().unwrap().ends_with("node.exe") {
-            return;
-        }
+        // TODO: send cwd as dir if the path is relative
         let mut buf = SmallVec::<u8, 256>::new();
         encode_into_std_write(access, &mut buf, BINCODE_CONFIG).unwrap();
         unsafe { write_pipe_message(self.pipe_handle, buf.as_slice()) };

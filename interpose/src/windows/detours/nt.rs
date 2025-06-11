@@ -118,9 +118,9 @@ static DETOUR_NT_CREATE_FILE: Detour<
             // if guard.active {
             //     let bt = backtrace::Backtrace::new();
             // unsafe {
-            //     to_path_access(desired_access, object_attributes, |path_access| {
-            //         eprintln!("NtCreateFile {:?}", path_access.path);
-            //     })
+                to_path_access(desired_access, object_attributes, |path_access| {
+                    eprintln!("NtCreateFile {:?}", path_access.path);
+                });
             // };
             // }
 

@@ -69,9 +69,33 @@ fn named_pipe_server_stream(
     ))
 }
 
-pub async fn spawn(
-    mut command: Command,
-) -> io::Result<(Child, impl Future<Output = io::Result<()>>)> {
+pub struct PathAccessStream {
+    pipe_receiver: NamedPipeServer,
+}
+
+const MESSAGE_MAX_LEN: usize = 4096;
+
+impl PathAccessStream {
+    pub async fn next<'a>(&mut self, buf: &'a mut Vec<u8>) -> io::Result<Option<PathAccess<'a>>> {
+        buf.resize(MESSAGE_MAX_LEN, 0);
+        let n = self.pipe_receiver.read(buf.as_mut_slice()).await?;
+        if n == 0 {
+            return Ok(None);
+        }
+        let msg = &buf[..n];
+        let (path_access, decoded_len) =
+            borrow_decode_from_slice::<'_, PathAccess, _>(msg, BINCODE_CONFIG).unwrap();
+        assert_eq!(decoded_len, msg.len());
+        Ok(Some(path_access))
+    }
+}
+
+pub struct TracedProcess {
+    pub child: Child,
+    pub path_access_stream: PathAccessStream,
+}
+
+pub async fn spawn(mut command: Command) -> io::Result<TracedProcess> {
     let tmp_dir = temp_dir().join("fspy");
     let _ = create_dir(&tmp_dir);
     let dll_path = INTERPOSE_CDYLIB.write_to(&tmp_dir, ".dll").unwrap();
@@ -89,12 +113,6 @@ pub async fn spawn(
 
     let pipe_name = format!(r"\\.\pipe\fspy_ipc_{:x}", luid()?);
 
-    // let pipe_server_opts = {
-    //     let mut opts = ServerOptions::new();
-    //     opts.pipe_mode(PipeMode::Message);
-    //     opts.access_outbound(false);
-    //     opts
-    // };
     let mut pipe_receiver = ServerOptions::new()
         .pipe_mode(PipeMode::Message)
         .access_outbound(false)
@@ -107,21 +125,7 @@ pub async fn spawn(
 
     connect_fut.await?;
 
-    let fut = async move {
-        const MESSAGE_MAX_LEN: usize = 4096;
-        let mut buf = vec![0u8; MESSAGE_MAX_LEN];
-        loop {
-            let n = pipe_receiver.read(&mut buf).await?;
-            if n == 0 {
-                break io::Result::Ok(());
-            }
-            let msg = &buf[..n];
-            let (path_access, decoded_len) =
-                borrow_decode_from_slice::<'_, PathAccess, _>(msg, BINCODE_CONFIG).unwrap();
-            assert_eq!(decoded_len, msg.len());
-            eprintln!("{:?}", path_access);
-        }
-    };
+    let path_access_stream = PathAccessStream { pipe_receiver };
 
     let child = command.spawn_with(|std_command| {
         let std_child = std_command.spawn()?;
@@ -178,5 +182,8 @@ pub async fn spawn(
     })?;
 
     drop(pipe_sender);
-    Ok((child, fut))
+    Ok(TracedProcess {
+        child,
+        path_access_stream,
+    })
 }

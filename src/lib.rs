@@ -22,10 +22,8 @@ mod os_impl;
 
 mod command_builder;
 
-pub struct FileSystemAccess {
-    pub path: PathBuf
-}
+pub use os_impl::{TracedProcess, spawn};
 
-pub use os_impl::*;
+pub use fspy_shared::ipc::{AccessMode, NativeStr, PathAccess};
 
-pub use consts::{ AccessMode, PathAccess };
+

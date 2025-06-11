@@ -9,7 +9,7 @@ pub const DETOURS: &[DetourAny] = concat_slices!([DetourAny]:
     create_process::DETOURS,
 
     // For backtrace
-    // nt::DETOURS, 
+    nt::DETOURS, 
 
     fileapi::DETOURS,
 );
