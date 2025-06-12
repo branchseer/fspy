@@ -1,10 +1,10 @@
 use core::slice;
 use std::{
-    cell::SyncUnsafeCell,
+    cell::{RefCell, SyncUnsafeCell},
     convert::identity,
     env,
     ffi::{CStr, OsStr},
-    io::{IoSlice, PipeWriter},
+    io::{IoSlice, PipeWriter, Write},
     mem::zeroed,
     os::{
         fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
@@ -219,36 +219,35 @@ impl Client {
         //  posix_spawn_file_actions_addclose(actions, fd, path, oflag, mode)
     }
     pub fn send(&self, mode: AccessMode, path: &BStr) {
-        // }
 
         if path.starts_with(b"/dev/") {
             return;
         }
         let mut msg_buf = SmallVec::<u8, 256>::new();
+        msg_buf.extend_from_slice(&0u32.to_be_bytes());
 
         let msg = PathAccess {
             mode,
             path: NativeStr::from_bytes(&path),
             dir: None,
         };
-        TLS_CHANNEL.with(|writer| {});
-        // let msg_size =
-        //     bincode::encode_into_std_write(msg, &mut msg_buf, config::standard()).unwrap();
-        // if *IS_NODE {
-        // eprintln!("{} {:?}", self.payload_with_str.payload.ipc_fd, msg);
-        // }
-        // if let Err(_err) = self.ipc_fd.send_with_flags(&msg_buf[..msg_size], libc::MSG_WAITALL) {
-        //     // https://lists.freebsd.org/pipermail/freebsd-net/2006-April/010308.html
-        //     // eprintln!("write err: {:?}, data size: {}", err, msg_size);
-        // }
+
+        let msg_size =
+            bincode::encode_into_std_write(msg, &mut msg_buf, config::standard()).unwrap();
+        let msg_size = u32::try_from(msg_size).unwrap().to_be_bytes();
+
+        msg_buf[..msg_size.len()].copy_from_slice(&msg_size);
+
+        TLS_CHANNEL.with_borrow_mut(|writer| writer.write_all(&msg_buf).unwrap());
+        
     }
 }
 
-thread_local! { static TLS_CHANNEL: PipeWriter = {
+thread_local! { static TLS_CHANNEL: RefCell<PipeWriter> = {
         let (channel_reader, channel_writer) = std::io::pipe().unwrap();
         let ipc_fd = global_client().unwrap().payload_with_str.payload.ipc_fd;
         ipc_fd.send_fd(channel_reader.as_raw_fd()).unwrap();
-        channel_writer
+        RefCell::new(channel_writer)
     }
 }
 

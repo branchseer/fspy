@@ -1,10 +1,8 @@
 use crate::{os_impl::{self, spawn_impl}, PathAccessStream};
 use std::{
-    collections::HashMap,
-    ffi::{OsStr, OsString},
-    path::{Path, PathBuf},
+    collections::HashMap, ffi::{OsStr, OsString}, io, path::{Path, PathBuf}
 };
-use futures_util::io;
+
 use tokio::process::{Command as TokioCommand, Child as TokioChild};
 
 #[derive(Debug)]
@@ -86,14 +84,15 @@ impl Command {
 
     pub(crate) fn into_tokio_command(self) -> TokioCommand {
         let mut tokio_cmd = TokioCommand::new(self.program);
-        tokio_cmd.args(self.args);
-        tokio_cmd.env_clear();
-        tokio_cmd.envs(self.envs);
 
         #[cfg(unix)]
         if let Some(arg0) = self.arg0 {
             tokio_cmd.arg0(arg0);
         }
+        tokio_cmd.args(self.args);
+        tokio_cmd.env_clear();
+        tokio_cmd.envs(self.envs);
+
         tokio_cmd
     }
 }

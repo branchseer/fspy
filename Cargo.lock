@@ -390,6 +390,7 @@ dependencies = [
  "phf",
  "rand 0.9.1",
  "ref-cast",
+ "slab",
  "tar",
  "tempfile",
  "tokio",

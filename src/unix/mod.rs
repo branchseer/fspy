@@ -46,12 +46,10 @@ impl Command {
         f(&mut info)?;
 
         self.program = info.program.as_os_str().to_os_string();
-        self.arg0 = Some(info.args.first().unwrap().to_os_string());
-        self.args = info
-            .args
-            .into_iter()
-            .map(|arg| arg.to_os_string())
-            .collect();
+
+        let mut args = info.args.into_iter();
+        self.arg0 = Some(args.next().unwrap().to_os_string());
+        self.args = args.map(|arg| arg.to_os_string()).collect();
         self.envs = info
             .envs
             .into_iter()

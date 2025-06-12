@@ -23,6 +23,7 @@ passfd = { git = "https://github.com/polachok/passfd", rev = "d55881752c16aced1a
 ] }
 which = "7.0.3"
 fspy_shared = { path = "interpose/shared" }
+slab = "0.4.9"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tokio-seqpacket = "0.8.0"

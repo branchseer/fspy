@@ -4,7 +4,7 @@ use std::{
     env::{self, temp_dir},
     ffi::{OsStr, OsString},
     fs::create_dir,
-    future::Future,
+    future::{Future, pending},
     io,
     mem::ManuallyDrop,
     net::Shutdown,
@@ -21,16 +21,12 @@ use std::{
 
 use std::process::{Child as StdChild, Command as StdCommand};
 
-use allocator_api2::{
-    SliceExt,
-    alloc::{Allocator, Global},
-    vec::{self, Vec},
-};
+use allocator_api2::SliceExt;
 use bincode::config;
 use bumpalo::Bump;
 
 use fspy_shared::{
-    ipc::PathAccess,
+    ipc::{BINCODE_CONFIG, PathAccess},
     macos::{
         Fixtures, Payload, encode_payload,
         inject::{PayloadWithEncodedString, inject},
@@ -38,7 +34,7 @@ use fspy_shared::{
 };
 use futures_util::{
     Stream, TryStream,
-    future::{join, select},
+    future::{Either, join, select, select_all, try_select},
     stream::poll_fn,
 };
 use libc::PIPE_BUF;
@@ -48,6 +44,7 @@ use nix::{
 };
 
 use passfd::tokio::FdPassingExt;
+use slab::Slab;
 use tokio::{
     io::{AsyncReadExt, BufReader, ReadBuf},
     net::{
@@ -80,11 +77,123 @@ pub struct Child {
     pub path_access_stream: PathAccessStream,
 }
 
-pub struct PathAccessStream {}
+pub struct PathAccessStream {
+    channel_receiver: Option<UnixStream>, // None when reaches eof
+    channels: Slab<BufReader<Receiver>>,
+}
 
 impl PathAccessStream {
-    pub async fn next(&mut self) -> io::Result<Option<PathAccess<'_>>> {
-        Ok(todo!())
+    pub async fn next<'a>(&mut self, buf: &'a mut Vec<u8>) -> io::Result<Option<PathAccess<'a>>> {
+        loop {
+            let new_channel_fut = async {
+                let Some(channel_receiver) = &self.channel_receiver else {
+                    return pending::<io::Result<Option<Receiver>>>().await;
+                };
+                {
+                    let channel = match channel_receiver.recv_fd().await {
+                        Err(err) => {
+                            return if err.kind() == io::ErrorKind::UnexpectedEof {
+                                Ok(None)
+                            } else {
+                                Err(err)
+                            };
+                        }
+                        Ok(ok) => unsafe { OwnedFd::from_raw_fd(ok) },
+                    };
+                    update_fd_flag(channel.as_fd(), |flags| flags.insert(FdFlag::FD_CLOEXEC))?;
+
+                    Ok(Some(Receiver::from_owned_fd(channel)?))
+                }
+            };
+            let new_channel_fut = pin!(new_channel_fut);
+
+            let either: Either<Option<Receiver>, usize> = if self.channels.is_empty() {
+                Either::Left(new_channel_fut.await?)
+            } else {
+                let readable_fut_iter = self.channels.iter().map(|(key, channel)| {
+                    Box::pin(async move {
+                        if !channel.buffer().is_empty() {
+                            return io::Result::Ok(key);
+                        }
+                        channel.get_ref().readable().await?;
+                        io::Result::Ok(key)
+                    })
+                });
+
+                let readable_fut = select_all(readable_fut_iter);
+
+                match select(new_channel_fut, readable_fut).await {
+                    Either::Left((new_channel_result, _)) => Either::Left(new_channel_result?),
+                    Either::Right(((readable_key_result, _, _), _)) => {
+                        Either::Right(readable_key_result?)
+                    }
+                }
+            };
+
+            let action: Either<Receiver, usize> = match either {
+                Either::Left(new_channel) => {
+                    if let Some(new_channel) = new_channel {
+                        Either::Left(new_channel)
+                    } else {
+                        // channel_receiver eof
+                        self.channel_receiver = None;
+                        if self.channels.is_empty() {
+                            return Ok(None);
+                        }
+                        continue;
+                    }
+                }
+                Either::Right(readable_key) => Either::Right(readable_key),
+            };
+
+            match action {
+                Either::Left(new_channel) => {
+                    self.channels.insert(BufReader::new(new_channel));
+                }
+                Either::Right(readable_channel_key) => {
+                    let readable_channel = &mut self.channels[readable_channel_key];
+
+                    let mut msg_size = [0u8; size_of::<u32>()];
+                    if !readable_channel.buffer().is_empty() {
+                        readable_channel.read_exact(&mut msg_size).await?;
+                    } else {
+                        let n = match readable_channel.get_mut().try_read(&mut msg_size) {
+                            Ok(ok) => ok,
+                            Err(err) => {
+                                if err.kind() == io::ErrorKind::WouldBlock {
+                                    continue;
+                                }
+                                return Err(err);
+                            }
+                        };
+                        if n == 0 {
+                            // this channel eof. deleting it
+                            self.channels.remove(readable_channel_key);
+                            if self.channel_receiver.is_none() {
+                                return Ok(None);
+                            }
+                            continue;
+                        }
+                        if n < msg_size.len() {
+                            readable_channel.read_exact(&mut msg_size[n..]).await?;
+                        }
+                    }
+                    let msg_size = usize::try_from(u32::from_be_bytes(msg_size)).unwrap();
+
+                    buf.resize(msg_size, 0);
+
+                    readable_channel.read_exact(buf.as_mut_slice()).await?;
+
+                    let (path_access, _) = bincode::borrow_decode_from_slice::<PathAccess<'a>, _>(
+                        buf.as_slice(),
+                        BINCODE_CONFIG,
+                    )
+                    .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+
+                    return Ok(Some(path_access));
+                }
+            }
+        }
     }
 }
 
@@ -101,6 +210,7 @@ impl SpyInner {
 
         let fixtures = Fixtures {
             bash_path: Path::new(
+                // "/opt/homebrew/bin/bash"
                 "/Users/patr0nus/Downloads/oils-for-unix-0.29.0/_bin/cxx-opt-sh/oils-for-unix",
             )
             .into(), //Path::new("/opt/homebrew/bin/bash"),//brush.as_path(),
@@ -112,9 +222,9 @@ impl SpyInner {
 }
 
 pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, PathAccessStream)> {
-    let (mut channel_receiver, channel_sender) = UnixStream::pair()?;
+    let (channel_receiver, channel_sender) = UnixStream::pair()?;
 
-    let mut channel_sender = channel_sender.into_std()?;
+    let channel_sender = channel_sender.into_std()?;
     channel_sender.set_nonblocking(false)?;
     let channel_sender = OwnedFd::from(channel_sender);
 
@@ -145,26 +255,14 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, 
     // drop channel_sender in the parent process,
     // so that channel_receiver reaches eof as soon as the last descendant process exits.
     drop(command);
-    loop {
-        let message_reader = match channel_receiver.recv_fd().await {
-            Err(err) => {
-                if err.kind() == io::ErrorKind::UnexpectedEof {
-                    eprintln!("receiver eof");
-                    break;
-                } else {
-                    return Err(err);
-                }
-            }
-            Ok(ok) => unsafe { OwnedFd::from_raw_fd(ok) },
-        };
-        update_fd_flag(message_reader.as_fd(), |flags| {
-            flags.insert(FdFlag::FD_CLOEXEC)
-        })?;
 
-        let message_reader = Receiver::from_owned_fd(message_reader)?;
-        dbg!(&message_reader);
-    }
-    Ok((child, PathAccessStream {}))
+    Ok((
+        child,
+        PathAccessStream {
+            channel_receiver: Some(channel_receiver),
+            channels: Slab::with_capacity(32),
+        },
+    ))
 }
 
 // pub fn spy(
