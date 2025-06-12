@@ -7,6 +7,9 @@ mod stack_once;
 #[cfg(target_os = "macos")]
 pub mod macos;
 
+#[doc(hidden)]
+pub use macos::_CTOR;
+
 #[cfg(target_os = "windows")]
 pub mod windows;
 

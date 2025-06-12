@@ -14,14 +14,19 @@ use std::{
 use bstr::BStr;
 use bumpalo::Bump;
 use caller::caller_dli_fname;
-use client::{CLIENT, RawCommand};
+use client::{RawCommand, global_client};
 use interpose_macros::interpose_libc;
-use libc::{c_char, c_int};
+use libc::{c_char, c_int, c_short};
 use nix::fcntl::FcntlArg;
+
+pub use client::_CTOR;
 
 use fspy_shared::ipc::AccessMode;
 
 unsafe fn handle_open(dirfd: c_int, path_ptr: *const c_char, flags: c_int) {
+    let Some(client) = global_client() else {
+        return;
+    };
     let path = Path::new(OsStr::from_bytes(
         unsafe { CStr::from_ptr(path_ptr) }.to_bytes(),
     ));
@@ -44,7 +49,7 @@ unsafe fn handle_open(dirfd: c_int, path_ptr: *const c_char, flags: c_int) {
     };
 
     let acc_mode = flags & libc::O_ACCMODE;
-    CLIENT.send(
+    client.send(
         if acc_mode == libc::O_RDWR {
             AccessMode::ReadWrite
         } else if acc_mode == libc::O_WRONLY {
@@ -96,13 +101,11 @@ unsafe extern "C" fn opendir(dirname: *const c_char) -> *mut libc::DIR {
 }
 interpose_libc!(opendir);
 
-
 unsafe extern "C" fn lstat(path: *const c_char, buf: *mut libc::stat) -> c_int {
     unsafe { handle_open(libc::AT_FDCWD, path, libc::O_RDONLY) };
     unsafe { libc::lstat(path, buf) }
 }
 interpose_libc!(lstat);
-
 
 unsafe extern "C" fn stat(path: *const c_char, buf: *mut libc::stat) -> c_int {
     unsafe { handle_open(libc::AT_FDCWD, path, libc::O_RDONLY) };
@@ -111,7 +114,12 @@ unsafe extern "C" fn stat(path: *const c_char, buf: *mut libc::stat) -> c_int {
 
 interpose_libc!(stat);
 
-unsafe extern "C" fn fstatat(dirfd: c_int, pathname: *const c_char, buf: *mut libc::stat, flags: c_int) -> c_int {
+unsafe extern "C" fn fstatat(
+    dirfd: c_int,
+    pathname: *const c_char,
+    buf: *mut libc::stat,
+    flags: c_int,
+) -> c_int {
     unsafe { handle_open(dirfd, pathname, libc::O_RDONLY) };
     unsafe { libc::fstatat(dirfd, pathname, buf, flags) }
 }
@@ -128,7 +136,7 @@ unsafe extern "C" fn execve(
         argv: argv.cast(),
         envp: envp.cast(),
     };
-    if let Err(err) = unsafe { CLIENT.interpose_command(&bump, &mut raw_cmd) } {
+    if let Err(err) = unsafe { global_client().unwrap().handle_exec(&bump, &mut raw_cmd) } {
         err.set();
         return -1;
     }
@@ -145,11 +153,12 @@ interpose_libc!(execve);
 unsafe extern "C" fn posix_spawn(
     pid: *mut libc::pid_t,
     path: *const c_char,
-    file_actions: *const libc::posix_spawn_file_actions_t,
+    mut file_actions: *const libc::posix_spawn_file_actions_t,
     attrp: *const libc::posix_spawnattr_t,
     argv: *const *mut c_char,
     envp: *const *mut c_char,
 ) -> libc::c_int {
+    let client = global_client().unwrap();
     let bump = Bump::new();
     let mut raw_cmd = RawCommand {
         prog: path,
@@ -157,9 +166,14 @@ unsafe extern "C" fn posix_spawn(
         envp: envp.cast(),
     };
 
-    if let Err(err) = unsafe { CLIENT.interpose_command(&bump, &mut raw_cmd) } {
+    if let Err(err) = unsafe { client.handle_exec(&bump, &mut raw_cmd) } {
         return err as c_int;
     }
+
+    if let Err(err) = unsafe { client.handle_posix_spawn_opts(&mut file_actions, attrp) } {
+        return err as c_int;
+    }
+
     unsafe {
         libc::posix_spawn(
             pid,
@@ -176,11 +190,13 @@ interpose_libc!(posix_spawn);
 unsafe extern "C" fn posix_spawnp(
     pid: *mut libc::pid_t,
     file: *const c_char,
-    file_actions: *const libc::posix_spawn_file_actions_t,
+    mut file_actions: *const libc::posix_spawn_file_actions_t,
     attrp: *const libc::posix_spawnattr_t,
     argv: *const *mut c_char,
     envp: *const *mut c_char,
 ) -> libc::c_int {
+    let client = global_client().unwrap();
+
     let bump = Bump::new();
     let file = OsStr::from_bytes(unsafe { CStr::from_ptr(file.cast()) }.to_bytes());
     let Ok(file) = which::which(file) else {
@@ -193,9 +209,14 @@ unsafe extern "C" fn posix_spawnp(
         argv: argv.cast(),
         envp: envp.cast(),
     };
-    if let Err(err) = unsafe { CLIENT.interpose_command(&bump, &mut raw_cmd) } {
+    if let Err(err) = unsafe { client.handle_exec(&bump, &mut raw_cmd) } {
         return err as c_int;
     }
+
+    if let Err(err) = unsafe { client.handle_posix_spawn_opts(&mut file_actions, attrp) } {
+        return err as c_int;
+    }
+
     unsafe {
         libc::posix_spawnp(
             pid,
