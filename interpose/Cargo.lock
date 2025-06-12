@@ -264,6 +264,7 @@ dependencies = [
  "ms-detours",
  "nix 0.30.1",
  "ntapi",
+ "passfd",
  "path-dedot",
  "phf",
  "ref-cast",
@@ -272,7 +273,6 @@ dependencies = [
  "socket2",
  "tempfile",
  "userland-execve",
- "va_list",
  "which",
  "widestring",
  "winapi",
@@ -513,6 +513,14 @@ dependencies = [
  "redox_syscall",
  "smallvec 1.15.1",
  "windows-targets",
+]
+
+[[package]]
+name = "passfd"
+version = "0.2.0"
+source = "git+https://github.com/polachok/passfd?rev=d55881752c16aced1a49a75f9c428d38d3767213#d55881752c16aced1a49a75f9c428d38d3767213"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -844,12 +852,6 @@ dependencies = [
  "goblin",
  "nix 0.27.1",
 ]
-
-[[package]]
-name = "va_list"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "153b41c3fc24dcbdf1281fc2b93d5d67ef2ef73ccd0e3b1d6bef2ce4861cce15"
 
 [[package]]
 name = "virtue"

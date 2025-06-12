@@ -39,16 +39,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
-name = "asyncfd"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62bb70a835a32b63dba26dd5ab327cf4406bfeb3df42b42e02c0fa9d86c09d06"
-dependencies = [
- "libc",
- "tokio",
-]
-
-[[package]]
 name = "attohttpc"
 version = "0.29.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -381,7 +371,6 @@ version = "0.1.0"
 dependencies = [
  "allocator-api2",
  "anyhow",
- "asyncfd",
  "attohttpc",
  "bincode",
  "bumpalo",
@@ -397,6 +386,7 @@ dependencies = [
  "linux-raw-sys",
  "ms-detours",
  "nix",
+ "passfd",
  "phf",
  "rand 0.9.1",
  "ref-cast",
@@ -867,6 +857,16 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "passfd"
+version = "0.2.0"
+source = "git+https://github.com/polachok/passfd?rev=d55881752c16aced1a49a75f9c428d38d3767213#d55881752c16aced1a49a75f9c428d38d3767213"
+dependencies = [
+ "futures-core",
+ "libc",
+ "tokio",
 ]
 
 [[package]]

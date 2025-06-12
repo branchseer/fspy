@@ -17,7 +17,10 @@ ref-cast = "1.0.24"
 tempfile = "3.19.1"
 # async-send-fd = { version = "1.2.0", features = ["tokio"] }
 # passfd = "0.1.6"
-tokio = { version = "1.44.2", features = ["net", "process", "io-util", "sync"]}
+tokio = { version = "1.44.2", features = ["net", "process", "io-util", "sync"] }
+passfd = { git = "https://github.com/polachok/passfd", rev = "d55881752c16aced1a49a75f9c428d38d3767213", features = [
+    "async",
+] }
 which = "7.0.3"
 fspy_shared = { path = "interpose/shared" }
 
@@ -25,9 +28,11 @@ fspy_shared = { path = "interpose/shared" }
 tokio-seqpacket = "0.8.0"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
-allocator-api2 = { version = "0.2.21", default-features = false, features = ["alloc"]}
-nix = { version = "0.30.1", features =  ["fs", "process", "socket", "feature"] }
-asyncfd = "0.1.2"
+allocator-api2 = { version = "0.2.21", default-features = false, features = [
+    "alloc",
+] }
+nix = { version = "0.30.1", features = ["fs", "process", "socket", "feature"] }
+# asyncfd = "0.1.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 phf = { version = "0.11.3", features = ["macros"] }
@@ -40,14 +45,23 @@ bumpalo = { version = "3.17.0", features = ["allocator-api2"] }
 [target.'cfg(target_os = "windows")'.dependencies]
 ms-detours = "4.0.5"
 winsafe = { version = "0.0.24", features = ["kernel"] }
-winapi = { version = "0.3.9", features = ["winbase", "securitybaseapi", "handleapi"] }
+winapi = { version = "0.3.9", features = [
+    "winbase",
+    "securitybaseapi",
+    "handleapi",
+] }
 
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 tempfile = "3.19.1"
 
 [dev-dependencies]
-tokio = { version = "1.44.2", features = ["rt-multi-thread", "macros", "fs", "io-std"] }
+tokio = { version = "1.44.2", features = [
+    "rt-multi-thread",
+    "macros",
+    "fs",
+    "io-std",
+] }
 csv-async = { version = "1.3.1", features = ["tokio"] }
 
 [build-dependencies]

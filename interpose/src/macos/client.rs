@@ -7,7 +7,7 @@ use std::{
     io::{IoSlice, PipeWriter},
     mem::zeroed,
     os::{
-        fd::{FromRawFd, OwnedFd, RawFd},
+        fd::{AsRawFd, FromRawFd, OwnedFd, RawFd},
         unix::{ffi::OsStrExt as _, net::UnixDatagram},
     },
     path::Path,
@@ -21,6 +21,7 @@ use bstr::BStr;
 use bumpalo::Bump;
 use libc::c_short;
 use nix::{errno::Errno, fcntl::AtFlags};
+use passfd::FdPassingExt;
 use smallvec::SmallVec;
 
 use fspy_shared::{
@@ -151,23 +152,6 @@ impl Client {
             },
             posix_spawn_file_actions: OnceLock::new(),
         }
-        // let ipc: &'static OsStr = env::var_os("FSPY_IPC_FD").unwrap().leak();
-        // let interpose_cdylib = Path::new(env::var_os("DYLD_INSERT_LIBRARIES").unwrap().leak());
-        // let bash = Path::new(env::var_os("FSPY_BASH").unwrap().leak());
-        // let coreutils = Path::new(env::var_os("FSPY_COREUTILS").unwrap().leak());
-        // let command_context = Context {
-        //     ipc_fd: ipc,
-        //     interpose_cdylib,
-        //     bash,
-        //     coreutils,
-        // };
-        // let ipc_fd = Socket::new(Domain::UNIX, Type::DGRAM, None).unwrap();
-        // ipc_fd.connect(&SockAddr::unix(ipc).unwrap()).unwrap();
-
-        // Self {
-        //     command_context,
-        //     ipc_fd,
-        // }
     }
     pub unsafe fn handle_exec(&self, bump: &Bump, raw_command: &mut RawCommand) -> nix::Result<()> {
         let mut cmd = unsafe { raw_command.into_command(bump) };
@@ -235,6 +219,8 @@ impl Client {
         //  posix_spawn_file_actions_addclose(actions, fd, path, oflag, mode)
     }
     pub fn send(&self, mode: AccessMode, path: &BStr) {
+        // }
+
         if path.starts_with(b"/dev/") {
             return;
         }
@@ -245,15 +231,24 @@ impl Client {
             path: NativeStr::from_bytes(&path),
             dir: None,
         };
+        TLS_CHANNEL.with(|writer| {});
         // let msg_size =
         //     bincode::encode_into_std_write(msg, &mut msg_buf, config::standard()).unwrap();
         // if *IS_NODE {
-        eprintln!("{} {:?}", self.payload_with_str.payload.ipc_fd, msg);
+        // eprintln!("{} {:?}", self.payload_with_str.payload.ipc_fd, msg);
         // }
         // if let Err(_err) = self.ipc_fd.send_with_flags(&msg_buf[..msg_size], libc::MSG_WAITALL) {
         //     // https://lists.freebsd.org/pipermail/freebsd-net/2006-April/010308.html
         //     // eprintln!("write err: {:?}, data size: {}", err, msg_size);
         // }
+    }
+}
+
+thread_local! { static TLS_CHANNEL: PipeWriter = {
+        let (channel_reader, channel_writer) = std::io::pipe().unwrap();
+        let ipc_fd = global_client().unwrap().payload_with_str.payload.ipc_fd;
+        ipc_fd.send_fd(channel_reader.as_raw_fd()).unwrap();
+        channel_writer
     }
 }
 

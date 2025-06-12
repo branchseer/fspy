@@ -9,7 +9,7 @@ use std::{
     mem::ManuallyDrop,
     net::Shutdown,
     os::{
-        fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd},
+        fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd},
         unix::{ffi::OsStrExt, process::CommandExt as _},
     },
     path::{Path, PathBuf},
@@ -47,9 +47,13 @@ use nix::{
     sys::socket::{getsockopt, sockopt::SndBuf},
 };
 
+use passfd::tokio::FdPassingExt;
 use tokio::{
     io::{AsyncReadExt, BufReader, ReadBuf},
-    net::{UnixDatagram, unix::pipe::pipe},
+    net::{
+        UnixDatagram, UnixStream,
+        unix::pipe::{Receiver, pipe},
+    },
     process::{Child as TokioChild, Command as TokioCommand},
 };
 
@@ -108,9 +112,14 @@ impl SpyInner {
 }
 
 pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, PathAccessStream)> {
-    let ipc_fd = 528491;
+    let (mut channel_receiver, channel_sender) = UnixStream::pair()?;
+
+    let mut channel_sender = channel_sender.into_std()?;
+    channel_sender.set_nonblocking(false)?;
+    let channel_sender = OwnedFd::from(channel_sender);
+
     let payload = Payload {
-        ipc_fd,
+        ipc_fd: channel_sender.as_raw_fd(),
         fixtures: command.spy_inner.fixtures.clone(),
     };
     let payload_string = encode_payload(&payload);
@@ -125,7 +134,36 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, 
     command.with_info(&bump, |cmd_info| inject(&bump, cmd_info, &payload_with_str))?;
 
     let mut command = command.into_tokio_command();
+    unsafe {
+        command.pre_exec(move || {
+            update_fd_flag(channel_sender.as_fd(), |flag| {
+                flag.remove(FdFlag::FD_CLOEXEC)
+            })
+        })
+    };
     let child = command.spawn()?;
+    // drop channel_sender in the parent process,
+    // so that channel_receiver reaches eof as soon as the last descendant process exits.
+    drop(command);
+    loop {
+        let message_reader = match channel_receiver.recv_fd().await {
+            Err(err) => {
+                if err.kind() == io::ErrorKind::UnexpectedEof {
+                    eprintln!("receiver eof");
+                    break;
+                } else {
+                    return Err(err);
+                }
+            }
+            Ok(ok) => unsafe { OwnedFd::from_raw_fd(ok) },
+        };
+        update_fd_flag(message_reader.as_fd(), |flags| {
+            flags.insert(FdFlag::FD_CLOEXEC)
+        })?;
+
+        let message_reader = Receiver::from_owned_fd(message_reader)?;
+        dbg!(&message_reader);
+    }
     Ok((child, PathAccessStream {}))
 }
 
