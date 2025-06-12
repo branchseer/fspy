@@ -219,7 +219,6 @@ impl Client {
         //  posix_spawn_file_actions_addclose(actions, fd, path, oflag, mode)
     }
     pub fn send(&self, mode: AccessMode, path: &BStr) {
-
         if path.starts_with(b"/dev/") {
             return;
         }
@@ -239,7 +238,6 @@ impl Client {
         msg_buf[..msg_size.len()].copy_from_slice(&msg_size);
 
         TLS_CHANNEL.with_borrow_mut(|writer| writer.write_all(&msg_buf).unwrap());
-        
     }
 }
 

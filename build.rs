@@ -161,9 +161,9 @@ const MACOS_BINARY_DOWNLOADS: &[(&str, &[(&str, &str, u128)])] = &[
     (
         "aarch64",
         &[(
-            "https://github.com/reubeno/brush/releases/download/brush-shell-v0.2.18/brush-aarch64-apple-darwin.tar.gz",
-            "brush",
-            231644371378838440703368570058960003177,
+            "https://github.com/branchseer/oils-for-unix-binaries/releases/download/0.29.0-manual/oils-for-unix-0.29.0-aarch64-apple-darwin.tar.gz",
+            "oils-for-unix",
+            149945237112824769531360595981178091193,
         ),
         (
             "https://github.com/uutils/coreutils/releases/download/0.1.0/coreutils-0.1.0-aarch64-apple-darwin.tar.gz",
@@ -174,8 +174,8 @@ const MACOS_BINARY_DOWNLOADS: &[(&str, &[(&str, &str, u128)])] = &[
     (
         "x86_64",
         &[(
-            "https://github.com/reubeno/brush/releases/download/brush-shell-v0.2.18/brush-x86_64-apple-darwin.tar.gz",
-            "brush",
+            "https://github.com/branchseer/oils-for-unix-binaries/releases/download/0.29.0-manual/oils-for-unix-0.29.0-x86_64-apple-darwin.tar.gz",
+            "oils-for-unix",
             286203014616009968685843701528129413859,
         ),
         (

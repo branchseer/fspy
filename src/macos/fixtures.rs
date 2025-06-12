@@ -3,7 +3,7 @@ use phf::phf_set;
 use crate::fixture::{Fixture, fixture};
 
 pub const COREUTILS_BINARY: Fixture = fixture!("coreutils");
-pub const BRUSH_BINARY: Fixture = fixture!("brush");
+pub const OILS_BINARY: Fixture = fixture!("oils-for-unix");
 pub const INTERPOSE_CDYLIB: Fixture = fixture!("fspy_interpose");
 
 #[cfg(test)]

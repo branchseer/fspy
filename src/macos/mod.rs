@@ -205,15 +205,11 @@ pub(crate) struct SpyInner {
 impl SpyInner {
     pub fn init_in_dir(path: &Path) -> io::Result<Self> {
         let coreutils = fixtures::COREUTILS_BINARY.write_to(&path, "")?;
-        let _bash_path = fixtures::BRUSH_BINARY.write_to(&path, "")?;
+        let bash_path = fixtures::OILS_BINARY.write_to(&path, "")?;
         let interpose_cdylib = fixtures::INTERPOSE_CDYLIB.write_to(&path, ".dylib")?;
 
         let fixtures = Fixtures {
-            bash_path: Path::new(
-                // "/opt/homebrew/bin/bash"
-                "/Users/patr0nus/Downloads/oils-for-unix-0.29.0/_bin/cxx-opt-sh/oils-for-unix",
-            )
-            .into(), //Path::new("/opt/homebrew/bin/bash"),//brush.as_path(),
+            bash_path: bash_path.as_path().into(), //Path::new("/opt/homebrew/bin/bash"),//brush.as_path(),
             coreutils_path: coreutils.as_path().into(),
             interpose_cdylib_path: interpose_cdylib.as_path().into(),
         };
