@@ -14,18 +14,21 @@ use std::{
 };
 
 use allocator_api2::vec::Vec;
-use arrayvec::ArrayVec;
 use bincode::config;
 use bstr::BStr;
 use bumpalo::Bump;
-use libc::PIPE_BUF;
-use nix::fcntl::FdFlag;
 use smallvec::SmallVec;
-use socket2::{Domain, SockAddr, Socket, Type};
 
-use crate::consts::{AccessMode, PathAccess};
+use fspy_shared::{
+    ipc::{AccessMode, NativeStr, PathAccess},
+    macos::{
+        PAYLOAD_ENV_NAME, decode_payload,
+        inject::{PayloadWithEncodedString, inject},
+    },
+    unix::cmdinfo::CommandInfo,
+};
 
-use super::command::{Command, Context, interpose_command};
+// use super::command::{CommandInfo, Context, inject};
 
 #[derive(Clone, Copy)]
 pub struct RawCommand {
@@ -76,7 +79,7 @@ impl RawCommand {
         str_vec.leak().as_ptr().cast()
     }
 
-    pub unsafe fn into_command<'a>(self, bump: &'a Bump) -> Command<'a, &'a Bump> {
+    pub unsafe fn into_command<'a>(self, bump: &'a Bump) -> CommandInfo<'a, &'a Bump> {
         let program = Path::new(OsStr::from_bytes(
             unsafe { CStr::from_ptr(self.prog) }.to_bytes(),
         ));
@@ -96,13 +99,13 @@ impl RawCommand {
             })
         };
 
-        Command {
+        CommandInfo {
             program,
             args,
             envs,
         }
     }
-    fn from_command<'a>(bump: &'a Bump, cmd: &Command<'a, &'a Bump>) -> Self {
+    fn from_command<'a>(bump: &'a Bump, cmd: &CommandInfo<'a, &'a Bump>) -> Self {
         RawCommand {
             prog: Self::to_c_str(bump, cmd.program.as_os_str()),
             argv: Self::to_c_str_array(bump, cmd.args.iter().copied()),
@@ -127,29 +130,36 @@ impl RawCommand {
 }
 
 pub struct Client {
-    command_context: Context<'static>,
-    ipc_fd: Socket,
+    payload_with_str: PayloadWithEncodedString,
 }
 
 impl Client {
     fn from_env() -> Self {
-        let ipc: &'static OsStr = env::var_os("FSPY_IPC_FD").unwrap().leak();
-        let interpose_cdylib = Path::new(env::var_os("DYLD_INSERT_LIBRARIES").unwrap().leak());
-        let bash = Path::new(env::var_os("FSPY_BASH").unwrap().leak());
-        let coreutils = Path::new(env::var_os("FSPY_COREUTILS").unwrap().leak());
-        let command_context = Context {
-            ipc_fd: ipc,
-            interpose_cdylib,
-            bash,
-            coreutils,
-        };
-        let ipc_fd = Socket::new(Domain::UNIX, Type::DGRAM, None).unwrap();
-        ipc_fd.connect(&SockAddr::unix(ipc).unwrap()).unwrap();
-
+        let payload_string = env::var_os(PAYLOAD_ENV_NAME).unwrap();
+        let payload = decode_payload(&payload_string);
         Self {
-            command_context,
-            ipc_fd,
+            payload_with_str: PayloadWithEncodedString {
+                payload,
+                payload_string,
+            },
         }
+        // let ipc: &'static OsStr = env::var_os("FSPY_IPC_FD").unwrap().leak();
+        // let interpose_cdylib = Path::new(env::var_os("DYLD_INSERT_LIBRARIES").unwrap().leak());
+        // let bash = Path::new(env::var_os("FSPY_BASH").unwrap().leak());
+        // let coreutils = Path::new(env::var_os("FSPY_COREUTILS").unwrap().leak());
+        // let command_context = Context {
+        //     ipc_fd: ipc,
+        //     interpose_cdylib,
+        //     bash,
+        //     coreutils,
+        // };
+        // let ipc_fd = Socket::new(Domain::UNIX, Type::DGRAM, None).unwrap();
+        // ipc_fd.connect(&SockAddr::unix(ipc).unwrap()).unwrap();
+
+        // Self {
+        //     command_context,
+        //     ipc_fd,
+        // }
     }
     pub unsafe fn interpose_command(
         &self,
@@ -157,29 +167,25 @@ impl Client {
         raw_command: &mut RawCommand,
     ) -> nix::Result<()> {
         let mut cmd = unsafe { raw_command.into_command(bump) };
-        interpose_command(bump, &mut cmd, self.command_context)?;
+        inject(bump, &mut cmd, &self.payload_with_str)?;
         *raw_command = RawCommand::from_command(bump, &cmd);
         Ok(())
     }
-    pub fn send(&self, access_mode: AccessMode, path: &BStr, caller: &BStr) {
-        let mut msg_buf = SmallVec::<[u8; 512]>::new();
-        // let msg_buf = &mut msg_buf;
-        // let len_size = size_of::<u16>();
-        // let mut send_buf = [0u8; PIPE_BUF];
+    pub fn send(&self, mode: AccessMode, path: &BStr) {
+        let mut msg_buf = SmallVec::<u8, 256>::new();
 
         let msg = PathAccess {
-            access_mode,
-            path: &path,
-            caller: &caller,
+            mode,
+            path: NativeStr::from_bytes(&path),
+            dir: None,
         };
         let msg_size =
             bincode::encode_into_std_write(msg, &mut msg_buf, config::standard()).unwrap();
-
-        
-        if let Err(_err) = self.ipc_fd.send_with_flags(&msg_buf[..msg_size], libc::MSG_WAITALL) {
-            // https://lists.freebsd.org/pipermail/freebsd-net/2006-April/010308.html
-            // eprintln!("write err: {:?}, data size: {}", err, msg_size);
-        }
+        dbg!(self.payload_with_str.payload.ipc_fd);
+        // if let Err(_err) = self.ipc_fd.send_with_flags(&msg_buf[..msg_size], libc::MSG_WAITALL) {
+        //     // https://lists.freebsd.org/pipermail/freebsd-net/2006-April/010308.html
+        //     // eprintln!("write err: {:?}, data size: {}", err, msg_size);
+        // }
     }
 }
 

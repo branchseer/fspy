@@ -414,10 +414,15 @@ dependencies = [
 name = "fspy_shared"
 version = "0.0.0"
 dependencies = [
+ "allocator-api2",
+ "base64",
  "bincode",
  "bstr",
  "bytemuck",
+ "derive-where",
  "ms-detours",
+ "nix",
+ "phf",
  "winapi",
  "winsafe 0.0.24",
 ]

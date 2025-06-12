@@ -1,11 +1,15 @@
 #[cfg(not(windows))]
 use std::ffi::OsStr;
+#[cfg(unix)]
+use std::sync::Arc;
 use std::{
     borrow::Cow,
-    ffi::{OsStr, OsString},
+    ffi::OsString,
     fmt::{self, Debug},
 };
 
+#[cfg(unix)]
+use bincode::Decode;
 use bincode::{BorrowDecode, Encode};
 
 /// Similar to OsStr, but requires no copy for encode/decode
@@ -73,6 +77,51 @@ impl<'a> NativeStr<'a> {
 impl<'a> Debug for NativeStr<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         <OsStr as Debug>::fmt(self.to_cow_os_str().as_ref(), f)
+    }
+}
+
+#[cfg(unix)]
+#[derive(Encode, Decode, Clone, Hash)]
+pub struct NativeString {
+    data: Arc<[u8]>,
+}
+
+#[cfg(unix)]
+impl<'a> Debug for NativeString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        <OsStr as Debug>::fmt(self.as_os_str(), f)
+    }
+}
+
+#[cfg(unix)]
+impl<'a> From<&'a OsStr> for NativeString {
+    fn from(value: &'a OsStr) -> Self {
+        use std::os::unix::ffi::OsStrExt;
+        Self {
+            data: value.as_bytes().into(),
+        }
+    }
+}
+#[cfg(unix)]
+impl<'a> From<&'a std::path::Path> for NativeString {
+    fn from(value: &'a std::path::Path) -> Self {
+        value.as_os_str().into()
+    }
+}
+
+#[cfg(unix)]
+impl std::ops::Deref for NativeString {
+    type Target = OsStr;
+    fn deref(&self) -> &Self::Target {
+        self.as_os_str()
+    }
+}
+
+#[cfg(unix)]
+impl NativeString {
+    pub fn as_os_str(&self) -> &OsStr {
+        use std::os::unix::ffi::OsStrExt as _;
+        OsStr::from_bytes(&self.data)
     }
 }
 

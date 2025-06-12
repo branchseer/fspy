@@ -1,6 +1,6 @@
 mod caller;
 mod client;
-mod command;
+
 mod interpose_macros;
 
 use std::{
@@ -19,9 +19,9 @@ use interpose_macros::interpose_libc;
 use libc::{c_char, c_int};
 use nix::fcntl::FcntlArg;
 
-use crate::consts::AccessMode;
+use fspy_shared::ipc::AccessMode;
 
-unsafe fn handle_open(dirfd: c_int, path_ptr: *const c_char, flags: c_int, caller: &[u8]) {
+unsafe fn handle_open(dirfd: c_int, path_ptr: *const c_char, flags: c_int) {
     let path = Path::new(OsStr::from_bytes(
         unsafe { CStr::from_ptr(path_ptr) }.to_bytes(),
     ));
@@ -53,12 +53,11 @@ unsafe fn handle_open(dirfd: c_int, path_ptr: *const c_char, flags: c_int, calle
             AccessMode::Read
         },
         path.as_os_str().as_bytes().into(),
-        caller.into(),
     );
 }
 
 unsafe extern "C" fn open(path_ptr: *const c_char, flags: c_int, mut args: ...) -> c_int {
-    unsafe { handle_open(libc::AT_FDCWD, path_ptr, flags, caller_dli_fname!().unwrap_or(b"")) };
+    unsafe { handle_open(libc::AT_FDCWD, path_ptr, flags) };
 
     // https://github.com/rust-lang/rust/issues/44930
     // https://github.com/thepowersgang/va_list-rs/
@@ -80,7 +79,7 @@ unsafe extern "C" fn openat(
     flags: c_int,
     mut args: ...
 ) -> c_int {
-    unsafe { handle_open(dirfd, path_ptr, flags, caller_dli_fname!().unwrap_or(b"")) };
+    unsafe { handle_open(dirfd, path_ptr, flags) };
     if flags & libc::O_CREAT != 0 {
         let mode: libc::c_int = unsafe { args.arg() };
         unsafe { libc::openat(dirfd, path_ptr, flags, mode) }
@@ -92,28 +91,28 @@ unsafe extern "C" fn openat(
 interpose_libc!(openat);
 
 unsafe extern "C" fn opendir(dirname: *const c_char) -> *mut libc::DIR {
-    unsafe { handle_open(libc::AT_FDCWD, dirname, libc::O_RDONLY, caller_dli_fname!().unwrap_or(b"")) };
+    unsafe { handle_open(libc::AT_FDCWD, dirname, libc::O_RDONLY) };
     unsafe { libc::opendir(dirname) }
 }
 interpose_libc!(opendir);
 
 
 unsafe extern "C" fn lstat(path: *const c_char, buf: *mut libc::stat) -> c_int {
-    unsafe { handle_open(libc::AT_FDCWD, path, libc::O_RDONLY, caller_dli_fname!().unwrap_or(b"")) };
+    unsafe { handle_open(libc::AT_FDCWD, path, libc::O_RDONLY) };
     unsafe { libc::lstat(path, buf) }
 }
 interpose_libc!(lstat);
 
 
 unsafe extern "C" fn stat(path: *const c_char, buf: *mut libc::stat) -> c_int {
-    unsafe { handle_open(libc::AT_FDCWD, path, libc::O_RDONLY, caller_dli_fname!().unwrap_or(b"")) };
+    unsafe { handle_open(libc::AT_FDCWD, path, libc::O_RDONLY) };
     unsafe { libc::stat(path, buf) }
 }
 
 interpose_libc!(stat);
 
 unsafe extern "C" fn fstatat(dirfd: c_int, pathname: *const c_char, buf: *mut libc::stat, flags: c_int) -> c_int {
-    unsafe { handle_open(dirfd, pathname, libc::O_RDONLY, caller_dli_fname!().unwrap_or(b"")) };
+    unsafe { handle_open(dirfd, pathname, libc::O_RDONLY) };
     unsafe { libc::fstatat(dirfd, pathname, buf, flags) }
 }
 interpose_libc!(fstatat);

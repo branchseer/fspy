@@ -6,7 +6,7 @@ use std::{
     process::ExitCode,
 };
 
-use fspy::{AccessMode, TracedProcess};
+use fspy::{AccessMode, Child};
 use futures_util::future::{Either, select};
 use tokio::{
     fs::File,
@@ -28,7 +28,7 @@ async fn main() -> io::Result<()> {
     let mut command = Command::new(program);
     command.args(args);
 
-    let TracedProcess {
+    let Child {
         mut child,
         mut path_access_stream,
     } = fspy::spawn(command).await?;
