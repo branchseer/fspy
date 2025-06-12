@@ -29,5 +29,5 @@ jobs:
       run: yarn lint:ox && yarn lint:ox && yarn lint:ox 
       working-directory: ecosystem/AFFiNE
     - name: Compare
-      run: yarn lint:ox && ..\..\target\release\examples\cli -o ${{ matrix.null_file }} yarn lint:ox
+      run: yarn lint:ox && ../../target/release/examples/cli -o ${{ matrix.null_file }} yarn lint:ox
       working-directory: ecosystem/AFFiNE
