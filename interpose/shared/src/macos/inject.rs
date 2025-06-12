@@ -27,22 +27,6 @@ pub fn inject<'a, A: Allocator + Clone + 'a>(
     command: &mut CommandInfo<'a, A>,
     playload_with_str: &'a PayloadWithEncodedString,
 ) -> nix::Result<()> {
-    // let payload = &playload_with_str.payload.fixtures.interpose_cdylib_path;
-    ensure_env(
-        &mut command.envs,
-        OsStr::from_bytes(b"DYLD_INSERT_LIBRARIES"),
-        &playload_with_str
-            .payload
-            .fixtures
-            .interpose_cdylib_path
-            .as_os_str(),
-    )?;
-    ensure_env(
-        &mut command.envs,
-        OsStr::from_bytes(PAYLOAD_ENV_NAME.as_bytes()),
-        &playload_with_str.payload_string.as_os_str(),
-    )?;
-
     if let Some(shebang) = parse_shebang(alloc, &NixFileSystem::default(), command.program)? {
         command.args[0] = shebang.interpreter.as_os_str();
         command.args.splice(
@@ -55,22 +39,52 @@ pub fn inject<'a, A: Allocator + Clone + 'a>(
         command.program = shebang.interpreter;
     }
 
+
     // TODO: resolve relative paths (e.g. program `sh` with cwd `/bin`)
-    let (Some(parent), Some(file_name)) = (command.program.parent(), command.program.file_name())
-    else {
-        return Ok(());
+    let injectable = if let (Some(parent), Some(file_name)) =
+        (command.program.parent(), command.program.file_name())
+    {
+        if matches!(parent.as_os_str().as_bytes(), b"/bin" | b"/usr/bin") {
+            let fixtures = &playload_with_str.payload.fixtures;
+            if matches!(file_name.as_bytes(), b"sh" | b"bash") {
+                command.program = Path::new(fixtures.bash_path.as_os_str());
+                true
+            } else if COREUTILS_FUNCTIONS.contains(file_name.as_bytes()) {
+                command.program = Path::new(fixtures.coreutils_path.as_os_str());
+                true
+            } else {
+                false
+            }
+        } else {
+            true
+        }
+    } else {
+        true
     };
-    if !matches!(parent.as_os_str().as_bytes(), b"/bin" | b"/usr/bin") {
-        return Ok(());
+
+    const DYLD_INSERT_LIBRARIES: &[u8] = b"DYLD_INSERT_LIBRARIES";
+    if injectable {
+        ensure_env(
+            &mut command.envs,
+            OsStr::from_bytes(DYLD_INSERT_LIBRARIES),
+            &playload_with_str
+                .payload
+                .fixtures
+                .interpose_cdylib_path
+                .as_os_str(),
+        )?;
+        ensure_env(
+            &mut command.envs,
+            OsStr::from_bytes(PAYLOAD_ENV_NAME.as_bytes()),
+            &playload_with_str.payload_string.as_os_str(),
+        )?;
+    } else {
+        command.envs.retain(|(name, _)| {
+            let name = name.as_bytes();
+            name != DYLD_INSERT_LIBRARIES && name != PAYLOAD_ENV_NAME.as_bytes()
+        });
     }
 
-    let fixtures = &playload_with_str.payload.fixtures;
-    if matches!(file_name.as_bytes(), b"sh" | b"bash") {
-        command.program = Path::new(fixtures.bash_path.as_os_str());
-    } else if COREUTILS_FUNCTIONS.contains(file_name.as_bytes()) {
-        command.program = Path::new(fixtures.coreutils_path.as_os_str());
-    }
-    //  eprintln!("interpose_command after: {:?}", command);
     Ok(())
 }
 

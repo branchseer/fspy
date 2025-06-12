@@ -2,6 +2,7 @@ use std::{
     env::{self, args_os},
     ffi::OsStr,
     io,
+    path::PathBuf,
     pin::{Pin, pin},
     process::ExitCode,
 };
@@ -23,10 +24,11 @@ async fn main() -> io::Result<()> {
 
     let out_path = args.next().unwrap();
 
-    let program = args.next().unwrap();
+    let mut program = PathBuf::from(args.next().unwrap());
+    program = which(&program).unwrap();
 
     let spy = fspy::Spy::init()?;
-    let program = which(program).unwrap();
+
     let mut command = spy.new_command(program);
     command.args(args);
 
