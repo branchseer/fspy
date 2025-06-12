@@ -1,12 +1,5 @@
 use std::{
-    convert::Infallible,
-    env::temp_dir,
-    ffi::{c_char, c_void},
-    fs::{File, OpenOptions, create_dir},
-    io, mem,
-    os::windows::{ffi::OsStrExt, io::AsRawHandle, process::ChildExt as _},
-    ptr::{null, null_mut},
-    str::from_utf8,
+    convert::Infallible, env::temp_dir, ffi::{c_char, c_void, CStr}, fs::{create_dir, File, OpenOptions}, io, mem, os::windows::{ffi::OsStrExt, io::AsRawHandle, process::ChildExt as _}, path::Path, ptr::{null, null_mut}, str::from_utf8, sync::Arc
 };
 
 use bincode::borrow_decode_from_slice;
@@ -23,9 +16,10 @@ use ms_detours::{DetourCopyPayloadToProcess, DetourUpdateProcessWithDll};
 use tokio::{
     io::AsyncReadExt,
     net::windows::named_pipe::{NamedPipeServer, PipeMode, ServerOptions},
-    process::{Child, Command},
+    process::{Child as TokioChild, Command as TokioCommand},
     sync::{mpsc, oneshot},
 };
+use crate::command::Command;
 // use detours_sys2::{DetourAttach,};
 
 use winapi::{
@@ -90,24 +84,37 @@ impl PathAccessStream {
     }
 }
 
-pub struct TracedProcess {
-    pub child: Child,
-    pub path_access_stream: PathAccessStream,
+// pub struct TracedProcess {
+//     pub child: Child,
+//     pub path_access_stream: PathAccessStream,
+// }
+
+#[derive(Debug, Clone)]
+pub struct SpyInner {
+    asni_dll_path_with_nul: Arc<CStr>,
 }
 
-pub async fn spawn(mut command: Command) -> io::Result<TracedProcess> {
-    let tmp_dir = temp_dir().join("fspy");
-    let _ = create_dir(&tmp_dir);
-    let dll_path = INTERPOSE_CDYLIB.write_to(&tmp_dir, ".dll").unwrap();
+impl SpyInner {
+    pub fn init_in_dir(path: &Path) -> io::Result<Self> {
+        
+        let dll_path = INTERPOSE_CDYLIB.write_to(&path, ".dll").unwrap();
 
-    let wide_dll_path = dll_path.as_os_str().encode_wide().collect::<Vec<u16>>();
-    let mut asni_dll_path =
-        winsafe::WideCharToMultiByte(CP::ACP, WC::NoValue, &wide_dll_path, None, None)
-            .map_err(|err| io::Error::from_raw_os_error(err.raw() as i32))?;
+        let wide_dll_path = dll_path.as_os_str().encode_wide().collect::<Vec<u16>>();
+        let mut asni_dll_path =
+            winsafe::WideCharToMultiByte(CP::ACP, WC::NoValue, &wide_dll_path, None, None)
+                .map_err(|err| io::Error::from_raw_os_error(err.raw() as i32))?;
 
-    asni_dll_path.push(0);
+        asni_dll_path.push(0);
 
-    let asni_dll_path_with_nul = asni_dll_path.as_slice();
+        let asni_dll_path_with_nul = unsafe { CStr::from_bytes_with_nul_unchecked(asni_dll_path.as_slice()) };
+        Ok(Self { asni_dll_path_with_nul: asni_dll_path_with_nul.into() })
+    }
+}
+
+
+pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, PathAccessStream)> {
+    let asni_dll_path_with_nul = Arc::clone(&command.spy_inner.asni_dll_path_with_nul);
+    let mut command = command.into_tokio_command();
 
     command.creation_flags(CREATE_SUSPENDED);
 
@@ -157,7 +164,7 @@ pub async fn spawn(mut command: Command) -> io::Result<TracedProcess> {
 
         let payload = Payload {
             pipe_handle: handle_in_child.addr(),
-            asni_dll_path_with_nul,
+            asni_dll_path_with_nul: asni_dll_path_with_nul.to_bytes(),
         };
         let payload_bytes = bincode::encode_to_vec(payload, BINCODE_CONFIG).unwrap();
         let success = unsafe {
@@ -184,8 +191,8 @@ pub async fn spawn(mut command: Command) -> io::Result<TracedProcess> {
     })?;
 
     drop(pipe_sender);
-    Ok(TracedProcess {
+    Ok((
         child,
         path_access_stream,
-    })
+    ))
 }

@@ -4,6 +4,8 @@
 )]
 
 mod fixture;
+
+#[cfg(unix)]
 mod unix;
 
 #[cfg(target_os = "linux")]
@@ -22,7 +24,7 @@ mod command;
 
 use std::{env::temp_dir, ffi::OsStr, fs::create_dir, io};
 
-pub use os_impl::{Child, PathAccessStream};
+pub use os_impl::PathAccessStream;
 
 pub use command::Command;
 use os_impl::SpyInner;
@@ -40,6 +42,7 @@ impl Spy {
             envs: std::env::vars_os().collect(),
             args: vec![],
             cwd: None,
+            #[cfg(unix)]
             arg0: None,
             spy_inner: self.0.clone(),
         }

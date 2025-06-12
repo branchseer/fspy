@@ -6,7 +6,7 @@ use std::{
     process::ExitCode,
 };
 
-use fspy::{AccessMode, Child};
+use fspy::AccessMode;
 use futures_util::future::{Either, select};
 use tokio::{
     fs::File,
@@ -26,7 +26,7 @@ async fn main() -> io::Result<()> {
     let program = args.next().unwrap();
 
     let spy = fspy::Spy::init()?;
-    // let program = which(program).unwrap();
+    let program = which(program).unwrap();
     let mut command = spy.new_command(program);
     command.args(args);
 

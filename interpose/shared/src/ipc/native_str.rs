@@ -1,4 +1,3 @@
-#[cfg(not(windows))]
 use std::ffi::OsStr;
 #[cfg(unix)]
 use std::sync::Arc;
