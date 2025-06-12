@@ -24,39 +24,42 @@ async fn main() -> io::Result<()> {
     let out_path = args.next().unwrap();
 
     let program = args.next().unwrap();
-    let program = which(program).unwrap();
-    let mut command = Command::new(program);
+
+    let spy = fspy::Spy::init()?;
+    // let program = which(program).unwrap();
+    let mut command = spy.new_command(program);
     command.args(args);
 
-    let Child {
-        mut child,
-        mut path_access_stream,
-    } = fspy::spawn(command).await?;
+    let (mut child, path_access_stream) = command.spawn().await?;
 
-    let out_file: Pin<Box<dyn AsyncWrite>> = if out_path == "-" {
-        Box::pin(stdout())
-    } else {
-        Box::pin(File::create(out_path).await?)
-    };
-
-    let mut csv_writer = csv_async::AsyncWriter::from_writer(out_file);
-
-    let mut buf = Vec::new();
     let mut path_count = 0usize;
-    while let Some(acc) = path_access_stream.next(&mut buf).await? {
-        path_count += 1;
-        csv_writer
-            .write_record(&[
-                acc.path.to_cow_os_str().to_string_lossy().as_ref().as_bytes(),
-                match acc.mode {
-                    AccessMode::Read => b"r",
-                    AccessMode::ReadWrite => b"rw",
-                    AccessMode::Write => b"w",
-                },
-            ])
-            .await?;
-    }
-    csv_writer.flush().await?;
+    // let out_file: Pin<Box<dyn AsyncWrite>> = if out_path == "-" {
+    //     Box::pin(stdout())
+    // } else {
+    //     Box::pin(File::create(out_path).await?)
+    // };
+
+    // let mut csv_writer = csv_async::AsyncWriter::from_writer(out_file);
+
+    // let mut buf = Vec::new();
+    // while let Some(acc) = path_access_stream.next(&mut buf).await? {
+    //     path_count += 1;
+    //     csv_writer
+    //         .write_record(&[
+    //             acc.path
+    //                 .to_cow_os_str()
+    //                 .to_string_lossy()
+    //                 .as_ref()
+    //                 .as_bytes(),
+    //             match acc.mode {
+    //                 AccessMode::Read => b"r",
+    //                 AccessMode::ReadWrite => b"rw",
+    //                 AccessMode::Write => b"w",
+    //             },
+    //         ])
+    //         .await?;
+    // }
+    // csv_writer.flush().await?;
 
     let output = child.wait().await?;
     eprintln!("\nfspy: {} paths accessed. {}", path_count, output);

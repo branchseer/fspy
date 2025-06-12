@@ -1,6 +1,6 @@
 use phf::phf_set;
 
-use crate::fixture::{fixture, Fixture};
+use crate::fixture::{Fixture, fixture};
 
 pub const COREUTILS_BINARY: Fixture = fixture!("coreutils");
 pub const BRUSH_BINARY: Fixture = fixture!("brush");
@@ -10,8 +10,9 @@ pub const INTERPOSE_CDYLIB: Fixture = fixture!("fspy_interpose");
 mod tests {
     use std::{process::Command, str::from_utf8};
 
+    use fspy_shared::macos::inject::COREUTILS_FUNCTIONS_FOR_TEST;
+
     use super::*;
-    use super::super::command::COREUTILS_FUNCTIONS;
 
     #[test]
     fn coreutils_functions() {
@@ -30,7 +31,11 @@ mod tests {
                 }
             })
             .collect();
-        let mut actual_functions: Vec<&str> = COREUTILS_FUNCTIONS.iter().copied().map(|f| from_utf8(f).unwrap()).collect();
+        let mut actual_functions: Vec<&str> = COREUTILS_FUNCTIONS_FOR_TEST
+            .iter()
+            .copied()
+            .map(|f| from_utf8(f).unwrap())
+            .collect();
 
         expected_functions.sort_unstable();
         actual_functions.sort_unstable();

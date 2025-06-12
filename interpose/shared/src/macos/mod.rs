@@ -14,8 +14,6 @@ use bincode::{Decode, Encode};
 use crate::ipc::{BINCODE_CONFIG, NativeString};
 
 pub const PAYLOAD_ENV_NAME: &str = "FSPY_PAYLOAD";
-pub const DYLD_INSERT_LIBRARIES_ENV_NAME: &str = "DYLD_INSERT_LIBRARIES";
-
 
 #[derive(Debug, Encode, Decode, Clone)]
 pub struct Fixtures {

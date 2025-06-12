@@ -172,6 +172,9 @@ impl Client {
         Ok(())
     }
     pub fn send(&self, mode: AccessMode, path: &BStr) {
+        if path.starts_with(b"/dev/") {
+            return;
+        }
         let mut msg_buf = SmallVec::<u8, 256>::new();
 
         let msg = PathAccess {
@@ -179,14 +182,18 @@ impl Client {
             path: NativeStr::from_bytes(&path),
             dir: None,
         };
-        let msg_size =
-            bincode::encode_into_std_write(msg, &mut msg_buf, config::standard()).unwrap();
-        dbg!(self.payload_with_str.payload.ipc_fd);
+        // let msg_size =
+        //     bincode::encode_into_std_write(msg, &mut msg_buf, config::standard()).unwrap();
+        if *IS_NODE {
+            eprintln!("{} {:?}", self.payload_with_str.payload.ipc_fd, msg);
+        }
         // if let Err(_err) = self.ipc_fd.send_with_flags(&msg_buf[..msg_size], libc::MSG_WAITALL) {
         //     // https://lists.freebsd.org/pipermail/freebsd-net/2006-April/010308.html
         //     // eprintln!("write err: {:?}, data size: {}", err, msg_size);
         // }
     }
 }
+
+static IS_NODE: LazyLock<bool> = LazyLock::new(|| std::env::current_exe().unwrap().as_os_str() == "/Users/patr0nus/.local/share/mise/installs/node/24.1.0/bin/node" );
 
 pub static CLIENT: LazyLock<Client> = LazyLock::new(|| Client::from_env());

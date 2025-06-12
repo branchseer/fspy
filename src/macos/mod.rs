@@ -19,7 +19,7 @@ use std::{
     task::Poll,
 };
 
-use std::process::{Command as StdCommand, Child as StdChild};
+use std::process::{Child as StdChild, Command as StdCommand};
 
 use allocator_api2::{
     SliceExt,
@@ -31,7 +31,10 @@ use bumpalo::Bump;
 
 use fspy_shared::{
     ipc::PathAccess,
-    macos::{encode_payload, inject::{inject, PayloadWithEncodedString}, Fixtures, Payload},
+    macos::{
+        Fixtures, Payload, encode_payload,
+        inject::{PayloadWithEncodedString, inject},
+    },
 };
 use futures_util::{
     Stream, TryStream,
@@ -73,16 +76,13 @@ pub struct Child {
     pub path_access_stream: PathAccessStream,
 }
 
-pub struct PathAccessStream {
-    
-}
+pub struct PathAccessStream {}
 
 impl PathAccessStream {
     pub async fn next(&mut self) -> io::Result<Option<PathAccess<'_>>> {
         Ok(todo!())
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub(crate) struct SpyInner {
@@ -93,8 +93,7 @@ impl SpyInner {
     pub fn init_in_dir(path: &Path) -> io::Result<Self> {
         let coreutils = fixtures::COREUTILS_BINARY.write_to(&path, "")?;
         let _bash_path = fixtures::BRUSH_BINARY.write_to(&path, "")?;
-        let interpose_cdylib = fixtures::INTERPOSE_CDYLIB
-            .write_to(&path, ".dylib")?;
+        let interpose_cdylib = fixtures::INTERPOSE_CDYLIB.write_to(&path, ".dylib")?;
 
         let fixtures = Fixtures {
             bash_path: Path::new(
@@ -104,26 +103,30 @@ impl SpyInner {
             coreutils_path: coreutils.as_path().into(),
             interpose_cdylib_path: interpose_cdylib.as_path().into(),
         };
-        Ok(Self {
-            fixtures
-        })
+        Ok(Self { fixtures })
     }
-    pub fn spawn_with(self, mut command: Command, with: impl Fn(&mut StdCommand) -> io::Result<StdChild>) -> io::Result<(TokioChild, PathAccessStream)> {
-        let ipc_fd = 528491;
-        let payload = Payload {
-            ipc_fd, fixtures: self.fixtures
-        };
-        let payload_string = encode_payload(&payload);
-        let payload_with_str = PayloadWithEncodedString {
-            payload,
-            payload_string,
-        };
-        let bump = Bump::new();
-        command.with_info(&bump, |cmd_info| {
-            inject(&bump, cmd_info, &payload_with_str);
-        });
-        todo!()
-    }
+}
+
+pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, PathAccessStream)> {
+    let ipc_fd = 528491;
+    let payload = Payload {
+        ipc_fd,
+        fixtures: command.spy_inner.fixtures.clone(),
+    };
+    let payload_string = encode_payload(&payload);
+    let payload_with_str = PayloadWithEncodedString {
+        payload,
+        payload_string,
+    };
+    let bump = Bump::new();
+    command.program = which::which(command.program.as_os_str())
+        .map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?
+        .into_os_string();
+    command.with_info(&bump, |cmd_info| inject(&bump, cmd_info, &payload_with_str))?;
+
+    let mut command = command.into_tokio_command();
+    let child = command.spawn()?;
+    Ok((child, PathAccessStream {}))
 }
 
 // pub fn spy(

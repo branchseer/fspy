@@ -9,9 +9,12 @@ use allocator_api2::alloc::Allocator;
 use phf::{Set, phf_set};
 
 use super::Payload;
-use crate::unix::{
-    cmdinfo::{CommandInfo, ensure_env},
-    shebang::{NixFileSystem, parse_shebang},
+use crate::{
+    macos::PAYLOAD_ENV_NAME,
+    unix::{
+        cmdinfo::{CommandInfo, ensure_env},
+        shebang::{NixFileSystem, parse_shebang},
+    },
 };
 
 pub struct PayloadWithEncodedString {
@@ -36,7 +39,7 @@ pub fn inject<'a, A: Allocator + Clone + 'a>(
     )?;
     ensure_env(
         &mut command.envs,
-        OsStr::from_bytes(b"FSPY_PAYLOAD"),
+        OsStr::from_bytes(PAYLOAD_ENV_NAME.as_bytes()),
         &playload_with_str.payload_string.as_os_str(),
     )?;
 
@@ -87,5 +90,5 @@ static COREUTILS_FUNCTIONS: Set<&'static [u8]> = phf_set! {
     b"unexpand", b"uniq", b"unlink", b"uptime", b"users", b"vdir", b"wc", b"who", b"whoami", b"yes",
 };
 
-#[cfg(test)]
+#[doc(hidden)]
 pub const COREUTILS_FUNCTIONS_FOR_TEST: &Set<&'static [u8]> = &COREUTILS_FUNCTIONS;

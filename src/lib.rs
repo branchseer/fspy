@@ -22,7 +22,7 @@ mod command;
 
 use std::{env::temp_dir, ffi::OsStr, fs::create_dir, io};
 
-pub use os_impl::Child;
+pub use os_impl::{Child, PathAccessStream};
 
 pub use command::Command;
 use os_impl::SpyInner;

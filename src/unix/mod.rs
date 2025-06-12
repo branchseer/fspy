@@ -4,13 +4,18 @@ use crate::command::Command;
 use allocator_api2::{SliceExt, vec::Vec};
 use bumpalo::Bump;
 use fspy_shared::unix::cmdinfo::CommandInfo;
+use which::which;
 
 fn alloc_os_str<'a>(bump: &'a Bump, src: &OsStr) -> &'a OsStr {
     OsStr::from_bytes(SliceExt::to_vec_in(src.as_bytes(), bump).leak())
 }
 
 impl Command {
-    pub fn with_info<'a>(&mut self, bump: &'a Bump, f: impl FnOnce(&mut CommandInfo<'a, &'a Bump>)) {
+    pub fn with_info<'a, E>(
+        &mut self,
+        bump: &'a Bump,
+        f: impl FnOnce(&mut CommandInfo<'a, &'a Bump>) -> Result<(), E>,
+    ) -> Result<(), E> {
         let mut arg_vec = Vec::with_capacity_in(self.args.len() + 1, bump);
 
         let arg0 = if let Some(arg0) = self.arg0.as_ref() {
@@ -31,13 +36,14 @@ impl Command {
             let value = alloc_os_str(bump, &value);
             env_vec.push((name, value));
         }
+
         let mut info = CommandInfo {
             program: Path::new(alloc_os_str(bump, self.program.as_os_str())),
             args: arg_vec,
             envs: env_vec,
         };
 
-        f(&mut info);
+        f(&mut info)?;
 
         self.program = info.program.as_os_str().to_os_string();
         self.arg0 = Some(info.args.first().unwrap().to_os_string());
@@ -51,5 +57,6 @@ impl Command {
             .into_iter()
             .map(|(name, value)| (name.to_os_string(), value.to_os_string()))
             .collect();
+        Ok(())
     }
 }

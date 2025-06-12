@@ -1,11 +1,13 @@
+use crate::{os_impl::{self, spawn_impl}, PathAccessStream};
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
     path::{Path, PathBuf},
 };
+use futures_util::io;
+use tokio::process::{Command as TokioCommand, Child as TokioChild};
 
-use crate::os_impl;
-
+#[derive(Debug)]
 pub struct Command {
     pub(crate) program: OsString,
     pub(crate) args: Vec<OsString>,
@@ -53,6 +55,22 @@ impl Command {
         self.cwd = Some(dir.as_ref().to_owned());
         self
     }
+
+    pub fn arg<S: AsRef<OsStr>>(&mut self, arg: S) -> &mut Command {
+        self.args.push(arg.as_ref().to_os_string());
+        self
+    }
+
+    pub fn args<I, S>(&mut self, args: I) -> &mut Command
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        self.args
+            .extend(args.into_iter().map(|arg| arg.as_ref().to_os_string()));
+        self
+    }
+
     #[cfg(unix)]
     pub fn arg0<S>(&mut self, arg: S) -> &mut Command
     where
@@ -61,5 +79,21 @@ impl Command {
         self.arg0 = Some(arg.as_ref().to_os_string());
         self
     }
-}
 
+    pub async fn spawn(self) -> io::Result<(TokioChild, PathAccessStream)> {
+        spawn_impl(self).await
+    }
+
+    pub(crate) fn into_tokio_command(self) -> TokioCommand {
+        let mut tokio_cmd = TokioCommand::new(self.program);
+        tokio_cmd.args(self.args);
+        tokio_cmd.env_clear();
+        tokio_cmd.envs(self.envs);
+
+        #[cfg(unix)]
+        if let Some(arg0) = self.arg0 {
+            tokio_cmd.arg0(arg0);
+        }
+        tokio_cmd
+    }
+}
