@@ -1,8 +1,9 @@
+use fspy_shared::linux::SYSCALL_MAGIC;
 use seccompiler::{
     apply_filter, BpfProgram, SeccompAction, SeccompCondition, SeccompFilter, SeccompRule
 };
 
-use crate::consts::SYSCALL_MAGIC;
+
 
 pub fn bootstrap() -> seccompiler::Result<()> {
     let syscalls_with_magic_indexes: &[(i64, u8)] = &[

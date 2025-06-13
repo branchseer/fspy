@@ -3,7 +3,6 @@
 
 mod bootstrap;
 mod consts;
-mod nul_term;
 mod exec;
 mod params;
 mod signal;
@@ -23,10 +22,10 @@ use std::{
     },
 };
 
-use nul_term::{Env, ThinCStr, find_env, iter_environ};
+use fspy_shared::linux::nul_term::{Env, ThinCStr, find_env, iter_environ};
 use lexical_core::parse;
 
-use consts::{
+use fspy_shared::linux::{
     ENVNAME_BOOTSTRAP, ENVNAME_EXECVE_HOST_PATH, ENVNAME_IPC_FD, ENVNAME_PROGRAM,
     ENVNAME_RESERVED_PREFIX,
 };

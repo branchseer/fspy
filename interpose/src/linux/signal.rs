@@ -2,6 +2,14 @@ use std::io::{self};
 
 use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, sigaction};
 
+use super::client::global_client;
+use libc::c_char;
+use linux_raw_sys::general as linux_sys;
+use std::ffi::CStr;
+use arrayvec::ArrayVec;
+use fspy_shared::linux::ENVNAME_PROGRAM;
+use std::io::IoSlice;
+const PATH_MAX: usize = libc::PATH_MAX as usize;
 
 extern "C" fn handle_sigsys(
     _signo: libc::c_int,
@@ -37,6 +45,8 @@ extern "C" fn handle_sigsys(
                     ])
                     .unwrap();
                 regs[0] = unsafe {
+                    use fspy_shared::linux::SYSCALL_MAGIC;
+
                     libc::syscall(
                         linux_sys::__NR_openat as _,
                         regs[0],
