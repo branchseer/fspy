@@ -4,10 +4,10 @@
 // fail with "_main not found" error
 #![cfg_attr(all(not(target_os = "linux"), not(test)), no_main)]
 
-#[cfg(target_os = "linux")]
-mod linux_execve_host;
 
 #[cfg(target_os = "linux")]
 fn main() -> ! {
-    linux_execve_host::main()
+    use fspy_interpose::linux;
+
+    linux::main()
 }
