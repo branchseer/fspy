@@ -5,7 +5,8 @@
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
 	"image": "mcr.microsoft.com/devcontainers/rust:1-1-bookworm",
 	"features": {
-		"ghcr.io/devcontainers-extra/features/mise:1": {}
+		"ghcr.io/devcontainers-extra/features/mise:1": {},
+		"ghcr.io/devcontainers-extra/features/fish-apt-get:1": {}
 	},
 	"customizations": {
 		"vscode": {
@@ -13,7 +14,15 @@
 				"rust-lang.rust-analyzer",
 				"tamasfe.even-better-toml",
 				"fill-labs.dependi"
-			]
+			],
+			"settings": {
+				"terminal.integrated.defaultProfile.linux": "fish",
+				"terminal.integrated.profiles.linux": {
+					"fish": {
+						"path": "/usr/bin/fish"
+					}
+				}
+			}
 		}
 	}
 
