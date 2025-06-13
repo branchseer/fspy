@@ -27,5 +27,5 @@ jobs:
     - name: Build
       run: cargo build --release --example cli
     - name: Compare
-      run: hyperfine --warmup 3 "yarn lint:ox" "../../target/release/examples/cli -o ${{ matrix.null_file }} yarn lint:ox"
+      run: hyperfine --show-output --warmup 3 "yarn lint:ox" "../../target/release/examples/cli -o ${{ matrix.null_file }} yarn lint:ox"
       working-directory: ecosystem/AFFiNE
