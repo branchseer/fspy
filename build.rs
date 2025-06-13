@@ -55,7 +55,7 @@ fn build_interpose() {
                     _ => panic!("Unsuppported linux target arch: {}", &target_arch),
                 },
                 "--bins",
-                "libfsypy_interpose.so",
+                "fspy_interpose",
             ),
             "macos" => (
                 env::var("TARGET").unwrap(),
@@ -100,10 +100,10 @@ fn build_interpose() {
     let interpose_hash_path = out_dir.join("fspy_interpose.hash");
 
     let interpose_data = fs::read(
-        interpose_target_dir
+        dbg!(interpose_target_dir
             .join(&interpose_target)
             .join(if is_release { "release" } else { "debug" })
-            .join(output_name),
+            .join(output_name)),
     )
     .unwrap();
     let interpose_hash = xxh3_128(&interpose_data);
