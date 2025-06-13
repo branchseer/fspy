@@ -20,11 +20,12 @@ jobs:
     - uses: actions/checkout@v4
       with:
         submodules: recursive
+    - uses: jdx/mise-action@v2
     - name: Prepare Ecosystem
       run: yarn set version berry && yarn install
       working-directory: ecosystem/AFFiNE
     - name: Build
       run: cargo build --release --example cli
     - name: Compare
-      run: hyperfine --warmup 3 "yarn lint:ox" "../../target/release/examples/cli -o /dev/null yarn lint:ox"
+      run: hyperfine --warmup 3 "yarn lint:ox" "../../target/release/examples/cli -o ${{ matrix.null_file }} yarn lint:ox"
       working-directory: ecosystem/AFFiNE
