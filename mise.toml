@@ -1,5 +1,6 @@
 [tools]
-node = "24.1.0"
-yarn = "4.6.0"
+hyperfine = "1.19.0"
+# node = "24.1.0"
+# yarn = "4.6.0"
 # cargo-binstall = "1.12.3"
 # "cargo:bindgen-cli" = "0.71.1"
