@@ -2,7 +2,6 @@
 
 // use tokio::process::Command;
 
-mod consts;
 
 use std::{
     ffi::{CString, OsStr, OsString},
@@ -10,7 +9,7 @@ use std::{
     io::{self, Write},
     mem::ManuallyDrop,
     os::{
-        fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
+        fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
         unix::{ffi::OsStrExt, process::CommandExt},
     },
     path::PathBuf,
@@ -18,7 +17,7 @@ use std::{
     task::Poll,
 };
 
-use crate::FileSystemAccess;
+// use crate::FileSystemAccess;
 use consts::{ENVNAME_BOOTSTRAP, ENVNAME_EXECVE_HOST_PATH, ENVNAME_IPC_FD, ENVNAME_PROGRAM};
 
 use futures_util::{stream::poll_fn, Stream, TryStream, TryStreamExt};
@@ -35,7 +34,7 @@ use tokio::process::Command;
 use tokio_seqpacket::UnixSeqpacket;
 use which::which;
 
-const EXECVE_HOST_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/linux_execve_host"));
+const EXECVE_HOST_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/fspy_interpose"));
 
 // const EXECVE_HOST_FD: LazyLock<RawFd> = LazyLock::new(|| {
 //     let memfd = memfd_create(c"fspy_execve_host", MemFdCreateFlag::empty()).unwrap();
@@ -47,7 +46,7 @@ pub struct Spy {
     execve_host_memfd: Arc<OwnedFd>,
 }
 
-fn unset_fd_flag(fd: RawFd, flag_to_remove: FdFlag) -> io::Result<()> {
+fn unset_fd_flag(fd: BorrowedFd<'_>, flag_to_remove: FdFlag) -> io::Result<()> {
     fcntl(
         fd,
         FcntlArg::F_SETFD({
@@ -58,7 +57,7 @@ fn unset_fd_flag(fd: RawFd, flag_to_remove: FdFlag) -> io::Result<()> {
     )?;
     Ok(())
 }
-fn unset_fl_flag(fd: RawFd, flag_to_remove: OFlag) -> io::Result<()> {
+fn unset_fl_flag(fd:  BorrowedFd<'_>, flag_to_remove: OFlag) -> io::Result<()> {
     fcntl(
         fd,
         FcntlArg::F_SETFL({
@@ -116,8 +115,8 @@ impl Spy {
 
                 move || {
                     // unset FD_CLOEXEC
-                    unset_fd_flag(sender.as_raw_fd(), FdFlag::FD_CLOEXEC)?;
-                    unset_fd_flag(execve_host_memfd.as_raw_fd(), FdFlag::FD_CLOEXEC)?;
+                    unset_fd_flag(sender.as_fd(), FdFlag::FD_CLOEXEC)?;
+                    unset_fd_flag(execve_host_memfd.as_fd(), FdFlag::FD_CLOEXEC)?;
 
                     // unset NONBLOCK
                     unset_fl_flag(sender.as_raw_fd(), OFlag::O_NONBLOCK)?;
