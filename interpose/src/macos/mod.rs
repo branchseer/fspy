@@ -1,68 +1,38 @@
 mod caller;
 mod client;
+mod convert;
+mod libc_extra;
 
 mod interpose_macros;
 
 use std::{
-    borrow::Cow,
-    env::current_dir,
     ffi::{CStr, OsStr},
-    os::{fd::BorrowedFd, unix::ffi::OsStrExt},
-    path::{Path, PathBuf},
+    os::unix::ffi::OsStrExt,
 };
 
-use bstr::BStr;
 use bumpalo::Bump;
-use caller::caller_dli_fname;
 use client::{RawCommand, global_client};
 use interpose_macros::interpose_libc;
-use libc::{c_char, c_int, c_short};
-use nix::fcntl::FcntlArg;
+use libc::{c_char, c_int, c_long, c_void};
 
 pub use client::_CTOR;
 
 use fspy_shared::ipc::AccessMode;
 
-unsafe fn handle_open(dirfd: c_int, path_ptr: *const c_char, flags: c_int) {
+use convert::{Fd, OpenFlags, PathAt, ToAbsolutePath};
+
+use crate::macos::interpose_macros::interpose;
+
+unsafe fn handle_open(path: impl ToAbsolutePath, acc_mode: impl Into<AccessMode>) {
     let Some(client) = global_client() else {
         return;
     };
-    let path = Path::new(OsStr::from_bytes(
-        unsafe { CStr::from_ptr(path_ptr) }.to_bytes(),
-    ));
-
-    let path: Cow<'_, Path> = if path.is_absolute() {
-        Cow::Borrowed(path)
-    } else {
-        let mut dir = PathBuf::new();
-        if dirfd == libc::AT_FDCWD {
-            dir = current_dir().unwrap()
-        } else {
-            nix::fcntl::fcntl(
-                unsafe { BorrowedFd::borrow_raw(dirfd) },
-                FcntlArg::F_GETPATH(&mut dir),
-            )
-            .unwrap();
-        };
-        dir.push(path);
-        Cow::Owned(dir)
-    };
-
-    let acc_mode = flags & libc::O_ACCMODE;
-    client.send(
-        if acc_mode == libc::O_RDWR {
-            AccessMode::ReadWrite
-        } else if acc_mode == libc::O_WRONLY {
-            AccessMode::Write
-        } else {
-            AccessMode::Read
-        },
-        path.as_os_str().as_bytes().into(),
-    );
+    let acc_mode = acc_mode.into();
+    unsafe { path.to_absolute_path(|path| client.send(acc_mode, path)) }.unwrap();
 }
 
 unsafe extern "C" fn open(path_ptr: *const c_char, flags: c_int, mut args: ...) -> c_int {
-    unsafe { handle_open(libc::AT_FDCWD, path_ptr, flags) };
+    unsafe { handle_open(path_ptr, OpenFlags(flags)) };
 
     // https://github.com/rust-lang/rust/issues/44930
     // https://github.com/thepowersgang/va_list-rs/
@@ -84,7 +54,7 @@ unsafe extern "C" fn openat(
     flags: c_int,
     mut args: ...
 ) -> c_int {
-    unsafe { handle_open(dirfd, path_ptr, flags) };
+    unsafe { handle_open(PathAt(dirfd, path_ptr), OpenFlags(flags)) };
     if flags & libc::O_CREAT != 0 {
         let mode: libc::c_int = unsafe { args.arg() };
         unsafe { libc::openat(dirfd, path_ptr, flags, mode) }
@@ -96,19 +66,47 @@ unsafe extern "C" fn openat(
 interpose_libc!(openat);
 
 unsafe extern "C" fn opendir(dirname: *const c_char) -> *mut libc::DIR {
-    unsafe { handle_open(libc::AT_FDCWD, dirname, libc::O_RDONLY) };
+    unsafe { handle_open(dirname, AccessMode::ReadDir) };
     unsafe { libc::opendir(dirname) }
 }
 interpose_libc!(opendir);
 
+unsafe extern "C" fn scandir(
+    dirname: *const c_char,
+    namelist: *mut c_void,
+    select: *const c_void,
+    compar: *const c_void,
+) -> c_int {
+    unsafe { handle_open(dirname, AccessMode::ReadDir) };
+    unsafe { libc_extra::scandir(dirname, namelist, select, compar) }
+}
+interpose!(libc_extra::scandir, scandir);
+
+unsafe extern "C" fn scandir_b(
+    dirname: *const c_char,
+    namelist: *mut c_void,
+    select: *const c_void,
+    compar: *const c_void,
+) -> c_int {
+    unsafe { handle_open(dirname, AccessMode::ReadDir) };
+    unsafe { libc_extra::scandir_b(dirname, namelist, select, compar) }
+}
+interpose!(libc_extra::scandir_b, scandir_b);
+
+unsafe extern "C" fn fdopendir(fd: c_int) -> *mut libc::DIR {
+    unsafe { handle_open(Fd(fd), AccessMode::ReadDir) };
+    unsafe { libc::fdopendir(fd) }
+}
+interpose_libc!(fdopendir);
+
 unsafe extern "C" fn lstat(path: *const c_char, buf: *mut libc::stat) -> c_int {
-    unsafe { handle_open(libc::AT_FDCWD, path, libc::O_RDONLY) };
+    unsafe { handle_open(path, AccessMode::Read) };
     unsafe { libc::lstat(path, buf) }
 }
 interpose_libc!(lstat);
 
 unsafe extern "C" fn stat(path: *const c_char, buf: *mut libc::stat) -> c_int {
-    unsafe { handle_open(libc::AT_FDCWD, path, libc::O_RDONLY) };
+    unsafe { handle_open(path, AccessMode::Read) };
     unsafe { libc::stat(path, buf) }
 }
 
@@ -120,10 +118,21 @@ unsafe extern "C" fn fstatat(
     buf: *mut libc::stat,
     flags: c_int,
 ) -> c_int {
-    unsafe { handle_open(dirfd, pathname, libc::O_RDONLY) };
+    unsafe { handle_open(PathAt(dirfd, pathname), AccessMode::Read) };
     unsafe { libc::fstatat(dirfd, pathname, buf, flags) }
 }
 interpose_libc!(fstatat);
+
+unsafe extern "C" fn getdirentries(
+    fd: c_int,
+    buf: *mut c_char,
+    nbytes: c_int,
+    basep: *mut c_long,
+) -> c_int {
+    unsafe { handle_open(Fd(fd), AccessMode::ReadDir) };
+    unsafe { libc_extra::getdirentries(fd, buf, nbytes, basep) }
+}
+interpose!(libc_extra::getdirentries, getdirentries);
 
 unsafe extern "C" fn execve(
     prog: *const libc::c_char,

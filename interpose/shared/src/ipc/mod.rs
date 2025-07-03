@@ -13,11 +13,12 @@ pub enum AccessMode {
     Read,
     Write,
     ReadWrite,
+    ReadDir,
 }
 
 #[derive(Encode, BorrowDecode, Debug)]
 pub struct PathAccess<'a> {
     pub mode: AccessMode,
     pub path: NativeStr<'a>,
-    pub dir: Option<NativeStr<'a>>,
+    // pub dir: Option<NativeStr<'a>>,
 }

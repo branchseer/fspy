@@ -228,7 +228,7 @@ impl Client {
         let msg = PathAccess {
             mode,
             path: NativeStr::from_bytes(&path),
-            dir: None,
+            // dir: None,
         };
 
         let msg_size =
