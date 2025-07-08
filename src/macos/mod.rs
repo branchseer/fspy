@@ -1,7 +1,7 @@
 mod fixtures;
 
 use std::{
-    env::{self, temp_dir},
+    env::{self, current_dir, temp_dir},
     ffi::{OsStr, OsString},
     fs::create_dir,
     future::{Future, pending},
@@ -77,6 +77,7 @@ pub struct Child {
     pub path_access_stream: PathAccessStream,
 }
 
+#[derive(Debug)]
 pub struct PathAccessStream {
     channel_receiver: Option<UnixStream>, // None when reaches eof
     channels: Slab<BufReader<Receiver>>,
@@ -234,9 +235,17 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, 
         payload_string,
     };
     let bump = Bump::new();
-    command.program = which::which(command.program.as_os_str())
-        .map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?
-        .into_os_string();
+    command.program = which::which_in(
+        command.program.as_os_str(),
+        command.envs.get(OsStr::new("PATH")),
+        if let Some(cwd) = &command.cwd {
+            cwd.clone()
+        } else {
+            current_dir()?
+        },
+    )
+    .map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?
+    .into_os_string();
     command.with_info(&bump, |cmd_info| inject(&bump, cmd_info, &payload_with_str))?;
 
     let mut command = command.into_tokio_command();

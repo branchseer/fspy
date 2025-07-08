@@ -1,9 +1,16 @@
-use crate::{os_impl::{self, spawn_impl}, PathAccessStream};
+use crate::{
+    PathAccessStream,
+    os_impl::{self, spawn_impl},
+};
 use std::{
-    collections::HashMap, ffi::{OsStr, OsString}, io, path::{Path, PathBuf}
+    collections::HashMap,
+    ffi::{OsStr, OsString},
+    io,
+    path::{Path, PathBuf},
+    process::Stdio,
 };
 
-use tokio::process::{Command as TokioCommand, Child as TokioChild};
+use tokio::process::{Child as TokioChild, Command as TokioCommand};
 
 #[derive(Debug)]
 pub struct Command {
@@ -14,6 +21,10 @@ pub struct Command {
     #[cfg(unix)]
     pub(crate) arg0: Option<OsString>,
 
+    pub(crate) stderr: Option<Stdio>,
+    pub(crate) stdout: Option<Stdio>,
+    pub(crate) stdin: Option<Stdio>,
+
     pub(crate) spy_inner: os_impl::SpyInner,
 }
 
@@ -22,8 +33,16 @@ impl Command {
         self.envs.remove(key.as_ref());
         self
     }
-    pub fn env_clear(&mut self) -> &mut Command {
-        self.envs.clear();
+    pub fn stderr<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Command {
+        self.stderr = Some(cfg.into());
+        self
+    }
+    pub fn stdout<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Command {
+        self.stdout = Some(cfg.into());
+        self
+    }
+    pub fn stdin<T: Into<Stdio>>(&mut self, cfg: T) -> &mut Command {
+        self.stdin = Some(cfg.into());
         self
     }
 
@@ -92,6 +111,18 @@ impl Command {
         tokio_cmd.args(self.args);
         tokio_cmd.env_clear();
         tokio_cmd.envs(self.envs);
+
+        if let Some(stdin) = self.stdin {
+            tokio_cmd.stdin(stdin);
+        }
+
+        if let Some(stdout) = self.stdout {
+            tokio_cmd.stdout(stdout);
+        }
+
+        if let Some(stderr) = self.stderr {
+            tokio_cmd.stderr(stderr);
+        }
 
         tokio_cmd
     }

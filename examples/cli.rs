@@ -27,7 +27,7 @@ async fn main() -> io::Result<()> {
     let mut program = PathBuf::from(args.next().unwrap());
     program = which(&program).unwrap();
 
-    let spy = fspy::Spy::init()?;
+    let spy = fspy::Spy::global()?;
 
     let mut command = spy.new_command(program);
     command.args(args);

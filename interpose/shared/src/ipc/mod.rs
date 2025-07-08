@@ -8,7 +8,7 @@ pub use native_str::NativeString;
 
 pub const BINCODE_CONFIG: Configuration = bincode::config::standard();
 
-#[derive(Encode, BorrowDecode, Debug)]
+#[derive(Encode, BorrowDecode, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AccessMode {
     Read,
     Write,
