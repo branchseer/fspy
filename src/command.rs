@@ -103,6 +103,9 @@ impl Command {
 
     pub(crate) fn into_tokio_command(self) -> TokioCommand {
         let mut tokio_cmd = TokioCommand::new(self.program);
+        if let Some(cwd) = &self.cwd {
+            tokio_cmd.current_dir(cwd);
+        }
 
         #[cfg(unix)]
         if let Some(arg0) = self.arg0 {
