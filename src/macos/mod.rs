@@ -74,16 +74,16 @@ fn alloc_os_str<'a>(bump: &'a Bump, src: &OsStr) -> &'a OsStr {
 }
 pub struct Child {
     pub tokio_child: TokioChild,
-    pub path_access_stream: PathAccessStream,
+    pub path_access_stream: PathAccessIter,
 }
 
 #[derive(Debug)]
-pub struct PathAccessStream {
+pub struct PathAccessIter {
     channel_receiver: Option<UnixStream>, // None when reaches eof
     channels: Slab<BufReader<Receiver>>,
 }
 
-impl PathAccessStream {
+impl PathAccessIter {
     pub async fn next<'a>(&mut self, buf: &'a mut Vec<u8>) -> io::Result<Option<PathAccess<'a>>> {
         loop {
             let new_channel_fut = async {
@@ -218,7 +218,7 @@ impl SpyInner {
     }
 }
 
-pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, PathAccessStream)> {
+pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, PathAccessIter)> {
     let (channel_receiver, channel_sender) = UnixStream::pair()?;
 
     let channel_sender = channel_sender.into_std()?;
@@ -235,17 +235,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, 
         payload_string,
     };
     let bump = Bump::new();
-    command.program = which::which_in(
-        command.program.as_os_str(),
-        command.envs.get(OsStr::new("PATH")),
-        if let Some(cwd) = &command.cwd {
-            cwd.clone()
-        } else {
-            current_dir()?
-        },
-    )
-    .map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?
-    .into_os_string();
+    command.resolve_program()?;
     command.with_info(&bump, |cmd_info| inject(&bump, cmd_info, &payload_with_str))?;
 
     let mut command = command.into_tokio_command();
@@ -263,7 +253,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, 
 
     Ok((
         child,
-        PathAccessStream {
+        PathAccessIter {
             channel_receiver: Some(channel_receiver),
             channels: Slab::with_capacity(32),
         },
@@ -278,7 +268,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, 
 //     envs: impl IntoIterator<Item = (impl AsRef<OsStr>, impl AsRef<OsStr>)>,
 // ) -> io::Result<(
 //     impl Future<Output = io::Result<ExitStatus>>,
-//     PathAccessStream,
+//     PathAccessIter,
 // )> {
 //     let tmp_dir = temp_dir().join("fspy");
 //     let _ = create_dir(&tmp_dir);

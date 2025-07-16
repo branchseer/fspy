@@ -1,9 +1,17 @@
+use std::os::fd::RawFd;
+
+use bincode::{Decode, Encode};
+
+use crate::ipc::NativeString;
+
 pub mod nul_term;
+pub mod inject;
 
-pub const SYSCALL_MAGIC: u64 = 0x900d575CA11; // 'good syscall'
+pub const PAYLOAD_ENV_NAME: &str = "FSPY_PAYLOAD";
 
-pub const ENVNAME_PROGRAM: &str = "FSPY_PROGRAM";
-pub const ENVNAME_IPC_FD: &str = "FSPY_IPC_FD";
-pub const ENVNAME_EXECVE_HOST_PATH: &str = "FSPY_EH_PATH";
-pub const ENVNAME_BOOTSTRAP: &str = "FSPY_BOOTSRAP";
-pub const ENVNAME_RESERVED_PREFIX: &str = "FSPY_";
+#[derive(Debug, Encode, Decode)]
+pub struct Payload {
+    pub execve_host_path: NativeString,
+    pub ipc_fd: RawFd,
+    pub bootstrap: bool,
+}

@@ -22,23 +22,12 @@ pub struct PayloadWithEncodedString {
     pub payload_string: OsString,
 }
 
-pub fn inject<'a, A: Allocator + Clone + 'a>(
+pub fn inject<'a, A: Allocator + Copy + 'a>(
     alloc: A,
     command: &mut CommandInfo<'a, A>,
     playload_with_str: &'a PayloadWithEncodedString,
 ) -> nix::Result<()> {
-    if let Some(shebang) = parse_shebang(alloc, &NixFileSystem::default(), command.program)? {
-        command.args[0] = shebang.interpreter.as_os_str();
-        command.args.splice(
-            1..1,
-            shebang
-                .arguments
-                .iter()
-                .chain(once(command.program.as_os_str())),
-        );
-        command.program = shebang.interpreter;
-    }
-
+    command.parse_shebang(alloc)?;
 
     // TODO: resolve relative paths (e.g. program `sh` with cwd `/bin`)
     let injectable = if let (Some(parent), Some(file_name)) =

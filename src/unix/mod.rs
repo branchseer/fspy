@@ -1,20 +1,18 @@
 use std::{ffi::OsStr, os::unix::ffi::OsStrExt as _, path::Path};
 
 use crate::command::Command;
-use allocator_api2::{SliceExt, vec::Vec};
-use bumpalo::Bump;
+use allocator_api2::{SliceExt, alloc::Allocator, vec::Vec};
 use fspy_shared::unix::cmdinfo::CommandInfo;
-use which::which;
 
-fn alloc_os_str<'a>(bump: &'a Bump, src: &OsStr) -> &'a OsStr {
+fn alloc_os_str<'a>(bump: impl Allocator + 'a, src: &OsStr) -> &'a OsStr {
     OsStr::from_bytes(SliceExt::to_vec_in(src.as_bytes(), bump).leak())
 }
 
 impl Command {
-    pub fn with_info<'a, E>(
+    pub fn with_info<'a, A: Allocator + Copy + 'a, E>(
         &mut self,
-        bump: &'a Bump,
-        f: impl FnOnce(&mut CommandInfo<'a, &'a Bump>) -> Result<(), E>,
+        bump: A,
+        f: impl FnOnce(&mut CommandInfo<'a, A>) -> Result<(), E>,
     ) -> Result<(), E> {
         let mut arg_vec = Vec::with_capacity_in(self.args.len() + 1, bump);
 

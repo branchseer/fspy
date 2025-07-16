@@ -8,10 +8,9 @@ use std::{
     },
 };
 
-use base64::prelude::*;
 use bincode::{Decode, Encode};
 
-use crate::ipc::{BINCODE_CONFIG, NativeString};
+use crate::ipc::{NativeString};
 
 pub const PAYLOAD_ENV_NAME: &str = "FSPY_PAYLOAD";
 
@@ -26,18 +25,4 @@ pub struct Fixtures {
 pub struct Payload {
     pub ipc_fd: RawFd,
     pub fixtures: Fixtures,
-}
-
-pub fn encode_payload(payload: &Payload) -> OsString {
-    let bincode_bytes = bincode::encode_to_vec(payload, BINCODE_CONFIG).unwrap();
-    OsString::from_vec(Vec::<u8>::from(
-        BASE64_STANDARD_NO_PAD.encode(&bincode_bytes),
-    ))
-}
-
-pub fn decode_payload(os_str: &OsStr) -> Payload {
-    let bincode_bytes = BASE64_STANDARD_NO_PAD.decode(os_str.as_bytes()).unwrap();
-    let (payload, n) = bincode::decode_from_slice(&bincode_bytes, BINCODE_CONFIG).unwrap();
-    assert_eq!(bincode_bytes.len(), n);
-    payload
 }

@@ -63,13 +63,13 @@ fn named_pipe_server_stream(
     ))
 }
 
-pub struct PathAccessStream {
+pub struct PathAccessIter {
     pipe_receiver: NamedPipeServer,
 }
 
 const MESSAGE_MAX_LEN: usize = 4096;
 
-impl PathAccessStream {
+impl PathAccessIter {
     pub async fn next<'a>(&mut self, buf: &'a mut Vec<u8>) -> io::Result<Option<PathAccess<'a>>> {
         buf.resize(MESSAGE_MAX_LEN, 0);
         let n = self.pipe_receiver.read(buf.as_mut_slice()).await?;
@@ -86,7 +86,7 @@ impl PathAccessStream {
 
 // pub struct TracedProcess {
 //     pub child: Child,
-//     pub path_access_stream: PathAccessStream,
+//     pub path_access_stream: PathAccessIter,
 // }
 
 #[derive(Debug, Clone)]
@@ -112,7 +112,7 @@ impl SpyInner {
 }
 
 
-pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, PathAccessStream)> {
+pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, PathAccessIter)> {
     let asni_dll_path_with_nul = Arc::clone(&command.spy_inner.asni_dll_path_with_nul);
     let mut command = command.into_tokio_command();
 
@@ -134,7 +134,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, 
 
     connect_fut.await?;
 
-    let path_access_stream = PathAccessStream { pipe_receiver };
+    let path_access_stream = PathAccessIter { pipe_receiver };
 
     let child = command.spawn_with(|std_command| {
         let std_child = std_command.spawn()?;

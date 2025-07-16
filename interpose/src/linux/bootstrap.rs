@@ -1,4 +1,4 @@
-use fspy_shared::linux::SYSCALL_MAGIC;
+use super::SYSCALL_MAGIC;
 use seccompiler::{
     apply_filter, BpfProgram, SeccompAction, SeccompCondition, SeccompFilter, SeccompRule
 };

@@ -50,7 +50,9 @@ impl FileSystem for NixFileSystem {
 
     fn peek_executable(&self, path: &Path, buf: &mut [u8]) -> Result<usize, Self::Error> {
         use nix::{fcntl::{open, OFlag}, sys::stat::Mode};
-        let fd = open(path,  OFlag::O_RDONLY | OFlag::O_CLOEXEC, Mode::empty())?;
+
+        eprintln!("opening");
+        let fd = dbg!(open(path,  OFlag::O_RDONLY | OFlag::O_CLOEXEC, Mode::empty()))?;
         // TODO: check exec permission
         let mut total_read_size = 0;
         loop {
@@ -70,7 +72,6 @@ impl FileSystem for NixFileSystem {
 }
 
 pub fn parse_shebang<'a, A: Allocator + 'a, FS: FileSystem>(alloc: A, fs: &FS, path: &Path) -> Result<Option<Shebang<'a>>, FS::Error> {
-
     // https://lwn.net/Articles/779997/
     // > The array used to hold the shebang line is defined to be 128 bytes in length
     // TODO: check linux/macOS' kernel source
@@ -79,6 +80,7 @@ pub fn parse_shebang<'a, A: Allocator + 'a, FS: FileSystem>(alloc: A, fs: &FS, p
     let buf = vec![in alloc; 0u8; PEEK_SIZE].leak::<'a>();
 
     let total_read_size = fs.peek_executable(path, buf)?;
+
     let Some(buf) = buf[..total_read_size].strip_prefix(b"#!") else {
         return Ok(None);
     };
@@ -86,7 +88,6 @@ pub fn parse_shebang<'a, A: Allocator + 'a, FS: FileSystem>(alloc: A, fs: &FS, p
     let Some(buf) = buf.split(|ch| matches!(*ch, b'\n')).next() else {
         return Err(fs.format_error());
     };
-
     let buf = buf.trim_ascii();
     let Some(interpreter) = buf.split(|ch| is_whitespace(*ch)).next() else {
         return Ok(None);

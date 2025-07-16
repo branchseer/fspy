@@ -20,6 +20,7 @@ phf = { version = "0.11.3", features = ["macros"] }
 [target.'cfg(unix)'.dependencies]
 allocator-api2 = { version = "0.2.21", default-features = false }
 nix = "0.30.1"
+libc = "0.2.174"
 base64 = { version = "0.22.1" }
 derive-where = "1.4.0"
 

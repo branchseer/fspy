@@ -2,12 +2,17 @@ use std::io::{self};
 
 use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, sigaction};
 
+use super::SYSCALL_MAGIC;
 use super::client::global_client;
+use arrayvec::ArrayVec;
 use libc::c_char;
 use linux_raw_sys::general as linux_sys;
 use std::ffi::CStr;
-use arrayvec::ArrayVec;
-use fspy_shared::linux::ENVNAME_PROGRAM;
+
+use fspy_shared::unix::cmdinfo::{CommandInfo, RawCommand};
+
+use crate::linux::alloc::with_stack_allocator;
+
 use std::io::IoSlice;
 const PATH_MAX: usize = libc::PATH_MAX as usize;
 
@@ -16,6 +21,7 @@ extern "C" fn handle_sigsys(
     info: *mut libc::siginfo_t,
     data: *mut libc::c_void,
 ) {
+    libc_print::libc_eprintln!("SIGSYS");
     let info = unsafe { info.as_ref().unwrap_unchecked() };
     if info.si_signo != libc::SIGSYS {
         return;
@@ -34,58 +40,54 @@ extern "C" fn handle_sigsys(
         let client = unsafe { global_client() };
         match sysno {
             linux_sys::__NR_openat => {
+                use bstr::BStr;
+                use libc_print::libc_eprintln;
+
                 let path_ptr = regs[1] as *const c_char;
                 let path = unsafe { CStr::from_ptr(path_ptr) }.to_bytes();
 
-                client
-                    .ipc_socket
-                    .send_vectored(&[
-                        // IoSlice::new( slice::from_ref(&(AccessKind::Open.into()))),
-                        IoSlice::new(path),
-                    ])
-                    .unwrap();
-                regs[0] = unsafe {
-                    use fspy_shared::linux::SYSCALL_MAGIC;
+                libc_eprintln!("openat {}", BStr::new(path));
 
+                regs[0] = unsafe {
                     libc::syscall(
                         linux_sys::__NR_openat as _,
                         regs[0],
                         regs[1],
                         regs[2],
                         regs[3],
-                        SYSCALL_MAGIC,
+                        super::SYSCALL_MAGIC,
                     )
                 } as _;
             }
             linux_sys::__NR_execve => {
-                let program = regs[0] as *const c_char;
-                let argv = regs[1] as *const *const c_char;
-                let envp = regs[2] as *const *const c_char;
-
-                let mut program_env_buf =
-                    ArrayVec::<u8, { ENVNAME_PROGRAM.len() + 1 + PATH_MAX + 1 }>::new();
-                let mut envp_buf = ArrayVec::<*const c_char, 1024>::new();
-
-                // unsafe {
-                //     global_state.prepare_envp(program, envp, &mut program_env_buf, &mut envp_buf)
-                // };
-
-                // regs[0] = unsafe {
-                //     libc::syscall(
-                //         linux_sys::__NR_execve as _,
-                //         global_state.host_path_env.value().as_ptr(),
-                //         argv,
-                //         envp_buf.as_ptr(),
-                //         SYSCALL_MAGIC,
-                //     )
-                // } as _;
+                let mut raw_command = RawCommand {
+                    prog: regs[0] as *const c_char,
+                    argv: regs[1] as *const *const c_char,
+                    envp: regs[2] as *const *const c_char,
+                };
+                let result: nix::Result<i64> = with_stack_allocator(|alloc| {
+                    libc_print::libc_eprintln!("execve with alloc");
+                    unsafe { client.handle_exec(alloc, &mut raw_command) }?;
+                    Ok(unsafe {
+                        libc::syscall(
+                            linux_sys::__NR_execve as _,
+                            raw_command.prog,
+                            raw_command.argv,
+                            raw_command.envp,
+                            SYSCALL_MAGIC,
+                        )
+                    })
+                });
+                if let Err(err) = result {
+                    regs[0] = (-(err as i64)) as u64
+                }
             }
             _ => {}
         }
     }
 }
 
-pub fn install_signal_handler() -> io::Result<()> {
+pub fn install_signal_handler() -> nix::Result<()> {
     // Unset SIGSYS block mask which is preserved across `execve`.
     // See "Signal mask and pending signals" in signal(7)
     let mut sigset = SigSet::empty();

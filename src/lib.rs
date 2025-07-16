@@ -31,21 +31,26 @@ use std::{
     sync::{LazyLock, OnceLock},
 };
 
-pub use os_impl::PathAccessStream;
+pub use os_impl::PathAccessIter;
 
 pub use command::Command;
 use os_impl::SpyInner;
 
 pub struct Spy(SpyInner);
 impl Spy {
-    pub fn in_temp() -> io::Result<Self> {
+    #[cfg(not(target_os = "linux"))]
+    pub fn new() -> io::Result<Self> {
         let tmp_dir = temp_dir().join("fspy");
         let _ = create_dir(&tmp_dir);
         Ok(Self(SpyInner::init_in_dir(&tmp_dir)?))
     }
+    #[cfg(target_os = "linux")]
+    pub fn new() -> io::Result<Self> {
+        Ok(Self(SpyInner::init()?))
+    }
     pub fn global() -> io::Result<&'static Self> {
         static GLOBAL_SPY: OnceLock<Spy> = OnceLock::new();
-        GLOBAL_SPY.get_or_try_init(|| Self::in_temp())
+        GLOBAL_SPY.get_or_try_init(|| Self::new())
     }
     pub fn new_command<S: AsRef<OsStr>>(&self, program: S) -> Command {
         Command {

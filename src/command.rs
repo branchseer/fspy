@@ -1,5 +1,5 @@
 use crate::{
-    PathAccessStream,
+    PathAccessIter,
     os_impl::{self, spawn_impl},
 };
 use std::{
@@ -97,8 +97,24 @@ impl Command {
         self
     }
 
-    pub async fn spawn(self) -> io::Result<(TokioChild, PathAccessStream)> {
+    pub async fn spawn(self) -> io::Result<(TokioChild, PathAccessIter)> {
         spawn_impl(self).await
+    }
+
+    /// Resolve program name to full path using `PATH` and cwd.
+    pub fn resolve_program(&mut self) -> io::Result<()> {
+        self.program = which::which_in(
+            self.program.as_os_str(),
+            self.envs.get(OsStr::new("PATH")),
+            if let Some(cwd) = &self.cwd {
+                cwd.clone()
+            } else {
+                std::env::current_dir()?
+            },
+        )
+        .map_err(|err| io::Error::new(io::ErrorKind::NotFound, err))?
+        .into_os_string();
+        Ok(())
     }
 
     pub(crate) fn into_tokio_command(self) -> TokioCommand {

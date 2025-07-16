@@ -54,7 +54,7 @@ async fn main() -> io::Result<()> {
                     .as_ref()
                     .as_bytes(),
                 match acc.mode {
-                    AccessMode::Read => b"read",
+                    AccessMode::Read => b"read".as_slice(),
                     AccessMode::ReadWrite => b"readwrite",
                     AccessMode::Write => b"write",
                     AccessMode::ReadDir => b"readdir",
