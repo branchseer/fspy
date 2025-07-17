@@ -1,4 +1,4 @@
-use std::{cell::{SyncUnsafeCell, UnsafeCell}, ffi::OsString, fs::File, mem::MaybeUninit, os::fd::{FromRawFd as _, RawFd}};
+use std::{cell::{SyncUnsafeCell, UnsafeCell}, ffi::{OsStr, OsString}, fs::File, mem::MaybeUninit, os::fd::{FromRawFd as _, RawFd}};
 
 use fspy_shared::{ipc::NativeString, linux::{inject::{inject, PayloadWithEncodedString}, nul_term::{find_env, Env, NulTerminated}, Payload}, unix::cmdinfo::RawCommand};
 use lexical_core::parse;
@@ -7,6 +7,7 @@ use socket2::Socket;
 use crate::linux::alloc::StackAllocator;
 
 pub struct Client {
+    pub program: &'static OsStr,
     pub payload_with_str: PayloadWithEncodedString,
 }
 

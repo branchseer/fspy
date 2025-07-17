@@ -9,6 +9,15 @@ use libc::c_char;
 use linux_raw_sys::general as linux_sys;
 use std::ffi::CStr;
 
+use std::os::fd::RawFd;
+use std::os::raw::c_int;
+
+use std::os::unix::ffi::OsStrExt as _;
+
+use bstr::BStr;
+use libc_print::libc_eprintln;
+use std::cmp::min;
+
 use fspy_shared::unix::cmdinfo::{CommandInfo, RawCommand};
 
 use crate::linux::{abort::abort_with, alloc::with_stack_allocator};
@@ -21,13 +30,12 @@ extern "C" fn handle_sigsys(
     info: *mut libc::siginfo_t,
     data: *mut libc::c_void,
 ) {
-    
     let info = unsafe { info.as_ref().unwrap_unchecked() };
     if info.si_signo != libc::SIGSYS {
         return;
     }
 
-    if let Err(err) = unblock_sigsys()  {
+    if let Err(err) = unblock_sigsys() {
         abort_with("failed to unblock SIGSYS")
     }
 
@@ -43,13 +51,57 @@ extern "C" fn handle_sigsys(
         let sysno = regs[8] as u32;
         let client = unsafe { global_client() };
         match sysno {
+            linux_sys::__NR_readlinkat => {
+                // See "EXAMPLES" section in https://man7.org/linux/man-pages/man2/memfd_create.2.html
+                const EXECVE_HOST_PATH_PREFIX: &str =
+                    const_format::concatcp!("/memfd:", fspy_shared::linux::EXECVE_HOST_NAME);
+
+                let dir_fd = regs[0] as RawFd;
+                let path = regs[1] as *const c_char;
+                let orig_buf = regs[2] as *mut c_char;
+                let orig_bufsiz = regs[3] as c_int;
+
+                // make sure buf is large enough to read the whole EXECVE_HOST_PATH_PREFIX
+                let mut fit_buf = [0u8; EXECVE_HOST_PATH_PREFIX.len()];
+                let fit_bufsize = fit_buf.len() as c_int;
+                let (buf, bufsiz) = if orig_bufsiz < fit_bufsize {
+                    (fit_buf.as_mut_ptr(), fit_bufsize)
+                } else {
+                    (orig_buf, orig_bufsiz)
+                };
+
+                let ret = unsafe {
+                    libc::syscall(
+                        linux_sys::__NR_readlinkat as _,
+                        dir_fd,
+                        path,
+                        buf,
+                        bufsiz,
+                        super::SYSCALL_MAGIC,
+                    )
+                };
+                regs[0] = ret as _;
+
+                let Ok(out_len) = usize::try_from(ret) else {
+                    // error
+                    return;
+                };
+
+                let out = unsafe { core::slice::from_raw_parts(buf, out_len) };
+
+                let real_out = if out.starts_with(EXECVE_HOST_PATH_PREFIX.as_bytes()) {
+                    client.program.as_bytes()
+                } else {
+                    out
+                };
+
+                if real_out.as_ptr() != orig_buf {
+                    let len = min(real_out.len(), orig_bufsiz as usize);
+                    unsafe { orig_buf.copy_from_nonoverlapping(real_out.as_ptr(), len) };
+                    regs[0] = len as _;
+                }
+            }
             linux_sys::__NR_openat => {
-                use std::os::fd::RawFd;
-
-                use bstr::BStr;
-                use libc_print::libc_eprintln;
-
-
                 let dir_fd = regs[0] as RawFd;
                 let path_ptr = regs[1] as *const c_char;
                 let path = unsafe { CStr::from_ptr(path_ptr) }.to_bytes();

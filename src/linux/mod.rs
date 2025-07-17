@@ -27,8 +27,7 @@ use tokio::process::Child as TokioChild;
 use fspy_shared::{
     ipc::PathAccess,
     linux::{
-        Payload,
-        inject::{PayloadWithEncodedString, inject},
+        inject::{inject, PayloadWithEncodedString}, Payload, EXECVE_HOST_NAME
     },
     unix::env::encode_env,
 };
@@ -48,11 +47,6 @@ use which::which;
 use crate::Command;
 
 const EXECVE_HOST_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/fspy_interpose"));
-
-// const EXECVE_HOST_FD: LazyLock<RawFd> = LazyLock::new(|| {
-//     let memfd = memfd_create(c"fspy_execve_host", MemFdCreateFlag::empty()).unwrap();
-//     OwnedFd::from(memfd).into_raw_fd()
-// });
 
 #[derive(Debug, Clone)]
 pub struct SpyInner {
@@ -133,7 +127,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, 
 
 impl SpyInner {
     pub fn init() -> io::Result<Self> {
-        let execve_host_memfd = memfd_create(c"fspy_execve_host", MFdFlags::MFD_CLOEXEC)?;
+        let execve_host_memfd = memfd_create(EXECVE_HOST_NAME, MFdFlags::MFD_CLOEXEC)?;
         let mut execve_host_memfile = File::from(execve_host_memfd);
         execve_host_memfile.write_all(EXECVE_HOST_BINARY)?;
         Ok(Self {

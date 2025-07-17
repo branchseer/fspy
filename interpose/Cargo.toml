@@ -19,6 +19,7 @@ libc-print = "0.1.23"
 refcell-lock-api = "0.1.0"
 talc = { version = "4.4.3", default-features = false, features = ["lock_api", "allocator-api2"] }
 allocator-api2 = { version = "0.2.21", default-features = false, features = ["alloc", "std"]}
+const_format = "0.2.34"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 libc = "0.2.172"

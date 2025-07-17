@@ -49,7 +49,7 @@ pub const SYSCALL_MAGIC: u64 = 0x900d575CA11; // 'good syscall'
 pub fn main() -> ! {
     let mut arg_iter = args_os();
     // [program] [encoded_payload] [args...]
-    let program = arg_iter.next().unwrap();
+    let program: &OsStr = arg_iter.next().unwrap().leak();
     let mut payload_string = arg_iter.next().unwrap();
 
     let mut payload: Payload = decode_env(&payload_string);
@@ -63,6 +63,7 @@ pub fn main() -> ! {
 
     unsafe {
         init_global_client(Client {
+            program,
             payload_with_str: PayloadWithEncodedString {
                 payload,
                 payload_string,
@@ -90,5 +91,6 @@ pub fn main() -> ! {
         })
         .collect();
 
-    userland_execve::exec(Path::new(program.as_os_str()), &args, &envs)
+    dbg!(&program);
+    userland_execve::exec(Path::new(program), &args, &envs)
 }

@@ -7,6 +7,7 @@ use seccompiler::{
 
 pub fn bootstrap() -> seccompiler::Result<()> {
     let syscalls_with_magic_indexes: &[(i64, u8)] = &[
+        (libc::SYS_readlinkat, 4),
         (libc::SYS_openat, 4),
         (libc::SYS_execve, 3),
     ];

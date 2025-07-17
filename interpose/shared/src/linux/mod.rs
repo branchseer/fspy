@@ -8,6 +8,7 @@ pub mod nul_term;
 pub mod inject;
 
 pub const PAYLOAD_ENV_NAME: &str = "FSPY_PAYLOAD";
+pub const EXECVE_HOST_NAME: &str = "fspy_execve_host";
 
 #[derive(Debug, Encode, Decode)]
 pub struct Payload {
