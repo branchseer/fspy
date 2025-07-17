@@ -5,7 +5,6 @@ mod abort;
 mod alloc;
 mod bootstrap;
 mod client;
-mod consts;
 mod global_alloc;
 mod handler;
 mod params;
