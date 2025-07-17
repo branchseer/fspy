@@ -57,7 +57,7 @@ fn get_current_dir_in<'a, A: Allocator + 'a>(alloc: A) -> nix::Result<Vec<u8, A>
     readlink_in(c"/proc/thread-self/cwd", alloc)
 }
 
-fn resolve_path_in<'a, A: Allocator + Copy + 'a>(
+pub fn resolve_path_in<'a, A: Allocator + Copy + 'a>(
     dirfd: RawFd,
     c_pathname: &'a CStr,
     alloc: A,

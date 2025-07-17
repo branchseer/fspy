@@ -13,9 +13,7 @@ pub struct Client {
 impl Client {
     pub unsafe fn handle_exec(&self, alloc: StackAllocator<'_>, raw_command: &mut RawCommand) -> nix::Result<()> {
         let mut cmd = unsafe { raw_command.into_command(alloc) };
-        libc_print::libc_eprintln!("before inject {:?}", &cmd);
         inject(alloc, &mut cmd, &self.payload_with_str)?;
-        libc_print::libc_eprintln!("after inject {:?}", &cmd);
         *raw_command = RawCommand::from_command(alloc, &cmd);
         Ok(())
     }

@@ -11,7 +11,7 @@ use std::ffi::CStr;
 
 use fspy_shared::unix::cmdinfo::{CommandInfo, RawCommand};
 
-use crate::linux::alloc::with_stack_allocator;
+use crate::linux::{abort::abort_with, alloc::with_stack_allocator};
 
 use std::io::IoSlice;
 const PATH_MAX: usize = libc::PATH_MAX as usize;
@@ -21,10 +21,14 @@ extern "C" fn handle_sigsys(
     info: *mut libc::siginfo_t,
     data: *mut libc::c_void,
 ) {
-    libc_print::libc_eprintln!("SIGSYS");
+    
     let info = unsafe { info.as_ref().unwrap_unchecked() };
     if info.si_signo != libc::SIGSYS {
         return;
+    }
+
+    if let Err(err) = unblock_sigsys()  {
+        abort_with("failed to unblock SIGSYS")
     }
 
     // TODO: check why info.si_code isn't SYS_seccomp as documented in seccomp(2)
@@ -40,13 +44,17 @@ extern "C" fn handle_sigsys(
         let client = unsafe { global_client() };
         match sysno {
             linux_sys::__NR_openat => {
+                use std::os::fd::RawFd;
+
                 use bstr::BStr;
                 use libc_print::libc_eprintln;
 
+
+                let dir_fd = regs[0] as RawFd;
                 let path_ptr = regs[1] as *const c_char;
                 let path = unsafe { CStr::from_ptr(path_ptr) }.to_bytes();
 
-                libc_eprintln!("openat {}", BStr::new(path));
+                libc_eprintln!("openat {} {} {}", dir_fd, libc::AT_FDCWD, BStr::new(path));
 
                 regs[0] = unsafe {
                     libc::syscall(
@@ -87,12 +95,16 @@ extern "C" fn handle_sigsys(
     }
 }
 
+fn unblock_sigsys() -> nix::Result<()> {
+    let mut sigset = SigSet::empty();
+    sigset.add(Signal::SIGSYS);
+    sigset.thread_unblock()
+}
+
 pub fn install_signal_handler() -> nix::Result<()> {
     // Unset SIGSYS block mask which is preserved across `execve`.
     // See "Signal mask and pending signals" in signal(7)
-    let mut sigset = SigSet::empty();
-    sigset.add(Signal::SIGSYS);
-    sigset.thread_unblock()?;
+    unblock_sigsys()?;
 
     unsafe {
         sigaction(

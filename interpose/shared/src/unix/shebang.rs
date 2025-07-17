@@ -50,9 +50,7 @@ impl FileSystem for NixFileSystem {
 
     fn peek_executable(&self, path: &Path, buf: &mut [u8]) -> Result<usize, Self::Error> {
         use nix::{fcntl::{open, OFlag}, sys::stat::Mode};
-
-        eprintln!("opening");
-        let fd = dbg!(open(path,  OFlag::O_RDONLY | OFlag::O_CLOEXEC, Mode::empty()))?;
+        let fd = open(path,  OFlag::O_RDONLY | OFlag::O_CLOEXEC, Mode::empty())?;
         // TODO: check exec permission
         let mut total_read_size = 0;
         loop {

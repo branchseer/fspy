@@ -24,13 +24,12 @@ async fn main() -> io::Result<()> {
 
     let out_path = args.next().unwrap();
 
-    let mut program = PathBuf::from(args.next().unwrap());
-    program = which(&program).unwrap();
+    let program = PathBuf::from(args.next().unwrap());
 
     let spy = fspy::Spy::global()?;
 
     let mut command = spy.new_command(program);
-    command.args(args);
+    command.envs(std::env::vars_os()).args(args);
 
     let (mut child, mut path_access_stream) = command.spawn().await?;
 
