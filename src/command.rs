@@ -1,6 +1,5 @@
 use crate::{
-    PathAccessIter,
-    os_impl::{self, spawn_impl},
+    os_impl::{self, spawn_impl}, PathAccesses, TrackedChild
 };
 use std::{
     collections::HashMap,
@@ -97,7 +96,7 @@ impl Command {
         self
     }
 
-    pub async fn spawn(self) -> io::Result<(TokioChild, PathAccessIter)> {
+    pub async fn spawn(self) -> io::Result<TrackedChild> {
         spawn_impl(self).await
     }
 

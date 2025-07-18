@@ -66,6 +66,8 @@ extern "C" fn handle_sigsys(
             let size = regs[3] as size_t;
 
             if signum == Signal::SIGSYS as _ {
+                // Ignore application SIGSYS handler
+                // TODO: manage application SIGSYS handler inside this handler
                 act = null()
             }
 
@@ -128,27 +130,27 @@ extern "C" fn handle_sigsys(
                 regs[0] = len as _;
             }
         } else if sysno == (Sysno::openat as _) {
-            let dir_fd = regs[0] as RawFd;
+            let dirfd = regs[0] as RawFd;
             let path_ptr = regs[1] as *const c_char;
-            let path = unsafe { CStr::from_ptr(path_ptr) }.to_bytes();
+            let flags = regs[2] as c_int;
+            let mode = regs[3] as libc::mode_t;
+
+            let nix_result = unsafe { client.handle_open(dirfd, path_ptr) };
+            if let Err(err) = nix_result {
+                regs[0] = (-(err as i64)) as u64;
+                return;
+            } 
 
             regs[0] = unsafe {
                 raw_syscall!(
                     Sysno::openat,
-                    regs[0],
-                    regs[1],
-                    regs[2],
-                    regs[3],
+                    dirfd,
+                    path_ptr,
+                    flags,
+                    mode,
                     super::SYSCALL_MAGIC
                 )
             } as _;
-            libc_eprintln!(
-                "openat {} {} {} {}",
-                dir_fd,
-                libc::AT_FDCWD,
-                BStr::new(path),
-                regs[0]
-            );
         } else if sysno == (Sysno::execve as _) {
             let mut raw_command = RawCommand {
                 prog: regs[0] as *const c_char,
@@ -161,17 +163,17 @@ extern "C" fn handle_sigsys(
             });
             if let Err(err) = result {
                 regs[0] = (-(err as i64)) as u64;
-            } else {
-                regs[0] = unsafe {
-                    raw_syscall!(
-                        Sysno::execve,
-                        raw_command.prog,
-                        raw_command.argv,
-                        raw_command.envp,
-                        SYSCALL_MAGIC
-                    )
-                } as _;
-            }
+                return;
+            } 
+            regs[0] = unsafe {
+                raw_syscall!(
+                    Sysno::execve,
+                    raw_command.prog,
+                    raw_command.argv,
+                    raw_command.envp,
+                    SYSCALL_MAGIC
+                )
+            } as _;
         }
     }
 }
@@ -188,13 +190,13 @@ pub fn install_signal_handler() -> nix::Result<()> {
     unblock_sigsys()?;
 
     unsafe {
-        let new_act = SigAction::new(
+        let new_sigact = SigAction::new(
             SigHandler::SigAction(handle_sigsys),
             SaFlags::SA_RESTART,
             SigSet::all(),
         );
         // nix::sys::signal::sigaction(Signal::SIGSYS, &new_act)?;
-        let libc_new_act = libc::sigaction::from(new_act);
+        let libc_new_sigact = libc::sigaction::from(new_sigact);
         // https://github.com/kraj/musl/blob/1b06420abdf46f7d06ab4067e7c51b8b63731852/src/internal/ksigaction.h#L1
         // https://github.com/kraj/musl/blob/1b06420abdf46f7d06ab4067e7c51b8b63731852/src/signal/sigaction.c#L47
         #[allow(non_camel_case_types)]
@@ -205,20 +207,20 @@ pub fn install_signal_handler() -> nix::Result<()> {
             restorer: *const c_void,
             mask: [c_uint; 2],
         }
-        const SA_RESTORER: c_ulong = 0x04000000;
-        unsafe extern "C" fn restorer() {
-            libc_eprintln!("restorer");
-        }
-        let k_new_act = k_sigaction {
-            handler: libc_new_act.sa_sigaction,
-            flags: SA_RESTORER | (libc_new_act.sa_flags as c_ulong),
-            restorer: restorer as _,
-            mask: transmute_copy(&libc_new_act.sa_mask),
+        // const SA_RESTORER: c_ulong = 0x04000000;
+        // unsafe extern "C" {
+        //     unsafe fn __restore_rt();
+        // }
+        let kernel_new_sigact = k_sigaction {
+            handler: libc_new_sigact.sa_sigaction,
+            flags: (libc_new_sigact.sa_flags as c_ulong),
+            restorer: null(),
+            mask: transmute_copy(&libc_new_sigact.sa_mask),
         };
         let ret = raw_syscall!(
             Sysno::rt_sigaction as _,
             Signal::SIGSYS as c_int,
-            &k_new_act as *const k_sigaction,
+            &kernel_new_sigact as *const k_sigaction,
             null_mut::<k_sigaction>(),
             8 as size_t,
             super::SYSCALL_MAGIC

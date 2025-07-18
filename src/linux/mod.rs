@@ -19,19 +19,24 @@ use std::{
     task::Poll,
 };
 
+use allocator_api2::vec::Vec;
+use bincode::error::DecodeError;
 use bumpalo::Bump;
 use tokio::process::Child as TokioChild;
 
 // use crate::FileSystemAccess;
 
 use fspy_shared::{
-    ipc::PathAccess,
+    ipc::{BINCODE_CONFIG, PathAccess},
     linux::{
-        inject::{inject, PayloadWithEncodedString}, Payload, EXECVE_HOST_NAME
+        EXECVE_HOST_NAME, Payload,
+        inject::{PayloadWithEncodedString, inject},
     },
     unix::env::encode_env,
 };
-use futures_util::{Stream, TryStream, TryStreamExt, stream::poll_fn};
+use futures_util::{
+    FutureExt, Stream, TryStream, TryStreamExt, future::BoxFuture, stream::poll_fn,
+};
 use nix::{
     fcntl::{FcntlArg, FdFlag, OFlag, fcntl},
     sys::{
@@ -44,7 +49,7 @@ use nix::{
 use tokio_seqpacket::UnixSeqpacket;
 use which::which;
 
-use crate::Command;
+use crate::{Command, PathAccesses, PathAccessesAsyncSendTryBuilder, TrackedChild};
 
 const EXECVE_HOST_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/fspy_interpose"));
 
@@ -76,27 +81,25 @@ fn unset_fl_flag(fd: BorrowedFd<'_>, flag_to_remove: OFlag) -> io::Result<()> {
     Ok(())
 }
 
-pub struct PathAccessIter {}
-
-impl PathAccessIter {
-    pub async fn next<'a>(&mut self, buf: &'a mut Vec<u8>) -> io::Result<Option<PathAccess<'a>>> {
-        Ok(None)
-    }
-}
-
-pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, PathAccessIter)> {
+pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild> {
     command.resolve_program()?;
-    let bump = Bump::new();
+    let mut bump = Bump::new();
 
     let execve_host_path = format!(
         "/proc/self/fd/{}",
         command.spy_inner.execve_host_memfd.as_raw_fd()
     );
+
+    let (sender, receiver) = tokio_seqpacket::UnixSeqpacket::pair()?;
+    let sender = OwnedFd::from(sender);
+    unset_fl_flag(sender.as_fd(), OFlag::O_NONBLOCK)?;
+
     let payload = Payload {
         execve_host_path: OsStr::from_bytes(execve_host_path.as_bytes()).into(),
-        ipc_fd: 0,
+        ipc_fd: sender.as_raw_fd(),
         bootstrap: true,
     };
+
     let payload_with_str = PayloadWithEncodedString {
         payload_string: encode_env(&payload),
         payload,
@@ -111,8 +114,9 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, 
 
     unsafe {
         command.pre_exec(move || {
-            // unset FD_CLOEXEC
+            // make fds auto-inherit
             unset_fd_flag(execve_host_memfd.as_fd(), FdFlag::FD_CLOEXEC)?;
+            unset_fd_flag(sender.as_fd(), FdFlag::FD_CLOEXEC)?;
             set_no_new_privs()?;
             Ok(())
         });
@@ -122,7 +126,39 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, 
     // so that channel_receiver reaches eof as soon as the last descendant process exits.
     drop(command);
 
-    Ok((child, PathAccessIter {}))
+    let accesses_future = async move {
+        bump.reset();
+        PathAccesses::try_new_async(bump, |bump| {
+            async move {
+                let mut buf = [0u8; 32768];
+                let mut acceses = Vec::<PathAccess<'_>, &Bump>::with_capacity_in(1024, bump);
+                loop {
+                    let n = receiver.recv(&mut buf).await?;
+                    if n == 0 {
+                        break;
+                    }
+                    if n == buf.len() {
+                        return Err(nix::Error::ENAMETOOLONG.into());
+                    }
+                    let buf_in_bump: &[u8] = bump.alloc_slice_copy(&buf[..n]);
+                    let (access, decode_size): (PathAccess, usize) =
+                        bincode::borrow_decode_from_slice(buf_in_bump, BINCODE_CONFIG)
+                            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+                    assert_eq!(decode_size, buf_in_bump.len());
+                    acceses.push(access);
+                }
+                Ok(acceses.leak() as &[PathAccess<'_>])
+            }
+            .boxed_local()
+        })
+        .await
+    }
+    .boxed_local();
+
+    Ok(TrackedChild {
+        tokio_child: child,
+        accesses_future,
+    })
 }
 
 impl SpyInner {

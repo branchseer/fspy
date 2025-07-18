@@ -23,18 +23,30 @@ mod os_impl;
 
 mod command;
 
-use std::{
-    env::temp_dir,
-    ffi::OsStr,
-    fs::create_dir,
-    io,
-    sync::{LazyLock, OnceLock},
-};
-
-pub use os_impl::PathAccessIter;
+use std::{env::temp_dir, ffi::OsStr, fs::create_dir, io, sync::OnceLock};
 
 pub use command::Command;
+use futures_util::future::{BoxFuture, LocalBoxFuture};
 use os_impl::SpyInner;
+
+#[ouroboros::self_referencing]
+pub struct PathAccesses {
+    bump: bumpalo::Bump,
+    #[borrows(bump)]
+    #[covariant]
+    accesses: &'this [PathAccess<'this>],
+}
+
+impl PathAccesses {
+    pub fn as_slice(&self) -> &[PathAccess<'_>] {
+        self.borrow_accesses()
+    }
+}
+
+pub struct TrackedChild {
+    pub tokio_child: Child,
+    pub accesses_future: LocalBoxFuture<'static, io::Result<PathAccesses>>,
+}
 
 pub struct Spy(SpyInner);
 impl Spy {
@@ -69,3 +81,4 @@ impl Spy {
 }
 
 pub use fspy_shared::ipc::*;
+use tokio::process::Child;

@@ -7,7 +7,7 @@ use std::{
     process::ExitCode,
 };
 
-use fspy::AccessMode;
+use fspy::{AccessMode, TrackedChild};
 use futures_util::future::{Either, select};
 use tokio::{
     fs::File,
@@ -31,7 +31,12 @@ async fn main() -> io::Result<()> {
     let mut command = spy.new_command(program);
     command.envs(std::env::vars_os()).args(args);
 
-    let (mut child, mut path_access_stream) = command.spawn().await?;
+    let TrackedChild {
+        mut tokio_child,
+        accesses_future,
+    } = command.spawn().await?;
+
+    let acceses = accesses_future.await?;
 
     let mut path_count = 0usize;
     let out_file: Pin<Box<dyn AsyncWrite>> = if out_path == "-" {
@@ -42,8 +47,7 @@ async fn main() -> io::Result<()> {
 
     let mut csv_writer = csv_async::AsyncWriter::from_writer(out_file);
 
-    let mut buf = Vec::new();
-    while let Some(acc) = path_access_stream.next(&mut buf).await? {
+    for acc in acceses.as_slice() {
         path_count += 1;
         csv_writer
             .write_record(&[
@@ -63,7 +67,7 @@ async fn main() -> io::Result<()> {
     }
     csv_writer.flush().await?;
 
-    let output = child.wait().await?;
+    let output = tokio_child.wait().await?;
     eprintln!("\nfspy: {} paths accessed. {}", path_count, output);
     Ok(())
 }

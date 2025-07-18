@@ -39,6 +39,7 @@ use fspy_shared::{
 };
 use lexical_core::parse;
 
+use libc_print::libc_eprintln;
 use socket2::Socket;
 
 use client::{Client, init_global_client};
@@ -70,10 +71,11 @@ pub fn main() -> ! {
         })
     };
 
-    handler::install_signal_handler().unwrap();
     if bootstrap {
         bootstrap::bootstrap().unwrap();
     }
+
+    handler::install_signal_handler().unwrap();
 
     let mut args: Vec<CString> = vec![];
     for arg in arg_iter {
