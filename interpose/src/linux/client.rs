@@ -24,7 +24,7 @@ use socket2::Socket;
 
 use crate::linux::{
     alloc::{StackAllocator, with_stack_allocator},
-    path::resolve_path_in,
+    path::resolve_path,
 };
 
 pub struct Client {
@@ -56,20 +56,22 @@ impl Client {
             _ => AccessMode::Read,
         };
 
-        with_stack_allocator(|alloc| {
-            let abs_path = resolve_path_in(dirfd, path, alloc)?;
-            let path_access = PathAccess {
-                mode: acc_mode,
-                path: NativeStr::from_bytes(abs_path.to_bytes()),
-            };
-            let mut msg = Vec::<u8, _>::with_capacity_in(1024, alloc);
-            encode_into_std_write(&path_access, &mut msg, BINCODE_CONFIG).unwrap();
-            nix::sys::socket::send(
-                self.payload_with_str.payload.ipc_fd,
-                &msg,
-                MsgFlags::empty(),
-            )
-        })?;
+        let abs_path = resolve_path(dirfd, path)?;
+
+        let path_access = PathAccess {
+            mode: acc_mode,
+            path: NativeStr::from_bytes(abs_path.to_bytes()),
+        };
+        let mut msg = std::vec::Vec::<u8>::new();
+        // msg.extend_from_slice(&[12,32,32]);
+        // msg.clear();
+        encode_into_std_write(&path_access, &mut msg, BINCODE_CONFIG).unwrap();
+        nix::sys::socket::send(
+            self.payload_with_str.payload.ipc_fd,
+            &msg,
+            MsgFlags::empty(),
+        )?;
+
         Ok(())
     }
 }

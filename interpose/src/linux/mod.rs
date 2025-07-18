@@ -10,7 +10,7 @@ mod params;
 mod path;
 
 use std::{
-    cell::UnsafeCell,
+    cell::{SyncUnsafeCell, UnsafeCell},
     env::args_os,
     ffi::{CStr, CString, OsStr},
     fs::File,
