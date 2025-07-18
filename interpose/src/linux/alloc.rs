@@ -1,14 +1,23 @@
-use core::mem::MaybeUninit;
 use core::alloc::Layout;
+use core::mem::MaybeUninit;
 use core::ptr::NonNull;
-use std::fmt::Debug;
+use std::{
+    cell::{SyncUnsafeCell, UnsafeCell},
+    fmt::Debug,
+};
 
-use allocator_api2::alloc::{Allocator, AllocError};
+use allocator_api2::alloc::{AllocError, Allocator};
 use refcell_lock_api::raw::CellMutex;
-use talc::{ErrOnOom, Talc, Talck};
+use talc::{ClaimOnOom, ErrOnOom, Span, Talc, Talck};
 
-const STACK_ALLOCATION: usize = 512 * 1024;
+// const STACK_ALLOCATION: usize = 24 * 1024;
 
+#[global_allocator]
+static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> = Talc::new(unsafe {
+    static HEAP: SyncUnsafeCell<[u8; 512 * 1024]> = SyncUnsafeCell::new([0u8; 512 * 1024]);
+    ClaimOnOom::new(Span::from_array(HEAP.get()))
+})
+.lock();
 
 // Why `StackAllocator`  shouldn't own `Talck` without lifetime:
 // ```
@@ -19,7 +28,7 @@ const STACK_ALLOCATION: usize = 512 * 1024;
 //  dbg!(leaked_buf); // dangling pointer here!
 // ```
 #[derive(Clone, Copy)]
-pub struct StackAllocator<'a>(&'a Talck<CellMutex, ErrOnOom>);
+pub struct StackAllocator<'a>(&'a Talck<spin::Mutex<()>, ClaimOnOom>);
 
 impl<'a> Debug for StackAllocator<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -29,7 +38,7 @@ impl<'a> Debug for StackAllocator<'a> {
 
 unsafe impl<'a> Allocator for StackAllocator<'a> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
-       self.0.allocate(layout)
+        self.0.allocate(layout)
     }
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: Layout) {
         unsafe { self.0.deallocate(ptr, layout) }
@@ -69,11 +78,15 @@ unsafe impl<'a> Allocator for StackAllocator<'a> {
     }
 }
 
+// TODO: remove StackAllocator (golang only allocate 32k for signal handlers stacks) 
+// and directly use global spin allocator. 
 pub fn with_stack_allocator<R, F: FnOnce(StackAllocator<'_>) -> R>(f: F) -> R {
-    let mut memory: MaybeUninit<[u8; STACK_ALLOCATION]> = MaybeUninit::uninit();
-    let talck= Talc::new(ErrOnOom).lock::<CellMutex>();
-    unsafe {
-        talck.lock().claim(talc::Span::from_array(memory.as_mut_ptr()));
-    };
-    f(StackAllocator(&talck))
+    // let mut memory: MaybeUninit<[u8; STACK_ALLOCATION]> = MaybeUninit::uninit();
+    // let talck = Talc::new(ErrOnOom).lock::<CellMutex>();
+    // unsafe {
+    //     talck
+    //         .lock()
+    //         .claim(talc::Span::from_array(memory.as_mut_ptr()));
+    // };
+    f(StackAllocator(&ALLOCATOR))
 }

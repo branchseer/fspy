@@ -22,7 +22,10 @@ use libc::{c_char, c_int};
 use nix::sys::socket::MsgFlags;
 use socket2::Socket;
 
-use crate::linux::alloc::{StackAllocator, with_stack_allocator};
+use crate::linux::{
+    alloc::{StackAllocator, with_stack_allocator},
+    path::resolve_path_in,
+};
 
 pub struct Client {
     pub program: &'static OsStr,
@@ -40,12 +43,24 @@ impl Client {
         *raw_command = RawCommand::from_command(alloc, &cmd);
         Ok(())
     }
-    pub unsafe fn handle_open(&self, dirfd: c_int, path: *const c_char) -> nix::Result<()> {
-        let path = unsafe { CStr::from_ptr(path) }.to_bytes();
+    pub unsafe fn handle_open(
+        &self,
+        dirfd: c_int,
+        path: *const c_char,
+        flags: c_int,
+    ) -> nix::Result<()> {
+        let path = unsafe { CStr::from_ptr(path) };
+        let acc_mode = match flags & libc::O_ACCMODE {
+            libc::O_RDWR => AccessMode::ReadWrite,
+            libc::O_WRONLY => AccessMode::Write,
+            _ => AccessMode::Read,
+        };
+
         with_stack_allocator(|alloc| {
+            let abs_path = resolve_path_in(dirfd, path, alloc)?;
             let path_access = PathAccess {
-                mode: AccessMode::Read,
-                path: NativeStr::from_bytes(path),
+                mode: acc_mode,
+                path: NativeStr::from_bytes(abs_path.to_bytes()),
             };
             let mut msg = Vec::<u8, _>::with_capacity_in(1024, alloc);
             encode_into_std_write(&path_access, &mut msg, BINCODE_CONFIG).unwrap();
@@ -62,14 +77,6 @@ impl Client {
 static CLIENT: SyncUnsafeCell<MaybeUninit<Client>> = SyncUnsafeCell::new(MaybeUninit::uninit());
 
 pub unsafe fn init_global_client(client: Client) {
-    // let host_path_env = unsafe { find_env(ENVNAME_EXECVE_HOST_PATH) }.unwrap();
-    // let ipc_fd_env = unsafe { find_env(ENVNAME_IPC_FD) }.unwrap();
-    // let ipc_fd = parse::<RawFd>(ipc_fd_env.value().as_slice()).unwrap();
-    // let client = Client {
-    //     host_path_env,
-    //     ipc_socket: unsafe { Socket::from_raw_fd(ipc_fd) },
-    //     ipc_fd_env,
-    // };
     unsafe { *CLIENT.get() = MaybeUninit::new(client) };
 }
 

@@ -303,6 +303,7 @@ dependencies = [
  "seccompiler",
  "smallvec 2.0.0-alpha.11",
  "socket2",
+ "spin",
  "syscalls",
  "talc",
  "tempfile",
@@ -814,6 +815,15 @@ checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "spin"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
+dependencies = [
+ "lock_api",
 ]
 
 [[package]]

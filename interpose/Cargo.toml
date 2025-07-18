@@ -20,6 +20,10 @@ talc = { version = "4.4.3", default-features = false, features = [
     "lock_api",
     "allocator-api2",
 ] }
+spin = { version = "0.10.0", default-features = false, features = [
+    "lock_api",
+    "spin_mutex",
+] }
 allocator-api2 = { version = "0.2.21", default-features = false, features = [
     "alloc",
     "std",
