@@ -130,12 +130,15 @@ extern "C" fn handle_sigsys(
                 regs[0] = len as _;
             }
         } else if sysno == (Sysno::openat as _) {
+            // let mut s = unsafe { core::mem::zeroed::<libc::stack_t>() };
+            // unsafe { libc::sigaltstack(null(), &mut s) };
+            // dbg!((s.ss_flags & libc::SS_ONSTACK, s.ss_size));
             let dirfd = regs[0] as RawFd;
             let path_ptr = regs[1] as *const c_char;
             let flags = regs[2] as c_int;
             let mode = regs[3] as libc::mode_t;
 
-            let nix_result = unsafe { client.handle_open(dirfd, path_ptr) };
+            let nix_result = unsafe { client.handle_open(dirfd, path_ptr, flags) };
             if let Err(err) = nix_result {
                 regs[0] = (-(err as i64)) as u64;
                 return;
@@ -192,10 +195,10 @@ pub fn install_signal_handler() -> nix::Result<()> {
     unsafe {
         let new_sigact = SigAction::new(
             SigHandler::SigAction(handle_sigsys),
-            SaFlags::SA_RESTART,
+            SaFlags::SA_RESTART | SaFlags::SA_ONSTACK,
             SigSet::all(),
         );
-        // nix::sys::signal::sigaction(Signal::SIGSYS, &new_act)?;
+
         let libc_new_sigact = libc::sigaction::from(new_sigact);
         // https://github.com/kraj/musl/blob/1b06420abdf46f7d06ab4067e7c51b8b63731852/src/internal/ksigaction.h#L1
         // https://github.com/kraj/musl/blob/1b06420abdf46f7d06ab4067e7c51b8b63731852/src/signal/sigaction.c#L47
@@ -225,6 +228,7 @@ pub fn install_signal_handler() -> nix::Result<()> {
             8 as size_t,
             super::SYSCALL_MAGIC
         ) as isize;
+
         if ret < 0 {
             return Err(Errno::from_raw((-ret as i32)));
         }
