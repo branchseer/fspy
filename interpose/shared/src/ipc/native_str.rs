@@ -3,8 +3,7 @@ use std::ffi::OsStr;
 use std::sync::Arc;
 use std::{
     borrow::Cow,
-    ffi::OsString,
-    fmt::{self, Debug},
+    fmt::{Debug},
 };
 
 #[cfg(unix)]

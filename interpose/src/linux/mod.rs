@@ -70,11 +70,10 @@ pub fn main() -> ! {
         })
     };
 
+    handler::install_signal_handler().unwrap();
     if bootstrap {
         bootstrap::bootstrap().unwrap();
     }
-
-    handler::install_signal_handler().unwrap();
 
     let mut args: Vec<CString> = vec![];
     for arg in arg_iter {
@@ -90,6 +89,6 @@ pub fn main() -> ! {
         })
         .collect();
 
-    dbg!(&program);
-    userland_execve::exec(Path::new(program), &args, &envs)
+    let result = unsafe { execve::execve(Path::new(program), args.iter(), envs.iter()) }.unwrap();
+    match result {}
 }

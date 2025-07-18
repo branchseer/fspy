@@ -1,6 +1,6 @@
 {
     "rust-analyzer.linkedProjects": [
-        "Cargo.toml",
+        // "Cargo.toml",
         "interpose/Cargo.toml",
     ],
     // don't pollute ./interpose with target folder
