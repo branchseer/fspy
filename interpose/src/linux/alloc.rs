@@ -12,7 +12,6 @@ use talc::{ClaimOnOom, ErrOnOom, Span, Talc, Talck};
 
 // const STACK_ALLOCATION: usize = 24 * 1024;
 
-#[global_allocator]
 static ALLOCATOR: Talck<spin::Mutex<()>, ClaimOnOom> = Talc::new(unsafe {
     static HEAP: SyncUnsafeCell<[u8; 512 * 1024]> = SyncUnsafeCell::new([0u8; 512 * 1024]);
     ClaimOnOom::new(Span::from_array(HEAP.get()))
