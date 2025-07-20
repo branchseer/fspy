@@ -4,10 +4,10 @@ edition = "2024"
 publish = false
 
 [workspace]
-members = ["execve", "shared"]
+members = ["shared"]
 
 [lib]
-crate-type = ["cdylib", "lib"]
+crate-type = ["cdylib"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 arrayvec = "0.7.6"
@@ -37,6 +37,7 @@ lexical-core = { version = "1.0.5", default-features = false, features = [
 ] }
 bstr = { version = "1.12.0", default-features = false }
 socket2 = "0.5.10"
+ctor = "0.4.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 phf = { version = "0.11.3", features = ["macros"] }
@@ -85,6 +86,5 @@ path-dedot = "3.1.1"
 ref-cast = "1.0.24"
 which = "7.0.3"
 fspy_shared = { path = "shared" }
-execve = { path = "execve" }
 ntapi = "0.4.1"
 dashmap = "6.1.0"

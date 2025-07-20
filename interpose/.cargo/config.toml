@@ -4,7 +4,3 @@
 # - In fspy's build.rs, CARGO_TARGET_DIR overrides this settings to follow the rule that
 #   build.rs should only write to OUT_DIR
 target-dir = "../target/fspy_interpose_target"
-
-[target.'cfg(target_env = "musl")']
-linker = "rust-lld"
-rustflags = ["-Ctarget-feature=+crt-static", "-Crelocation-model=pic", "-Clink-args=--no-dynamic-linker"]

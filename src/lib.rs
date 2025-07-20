@@ -28,6 +28,9 @@ use std::{env::temp_dir, ffi::OsStr, fs::create_dir, io, sync::OnceLock};
 pub use command::Command;
 use futures_util::future::{BoxFuture, LocalBoxFuture};
 use os_impl::SpyInner;
+use tokio::process::Child;
+pub use fspy_shared::ipc::PathAccess;
+pub use fspy_shared::ipc::AccessMode;
 
 #[ouroboros::self_referencing]
 pub struct PathAccesses {
@@ -80,5 +83,4 @@ impl Spy {
     }
 }
 
-pub use fspy_shared::ipc::*;
-use tokio::process::Child;
+// pub use fspy_shared::ipc::*;

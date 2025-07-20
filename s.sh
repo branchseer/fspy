@@ -1,3 +1,3 @@
-#!/workspaces/fspy/target/debug/examples/argv.a aaa
+#!/bin/sh
 
-console.log(process.argv0)
+echo zz

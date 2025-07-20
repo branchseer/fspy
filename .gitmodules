@@ -1,3 +1,0 @@
-[submodule "interpose/execve/libreflect"]
-	path = interpose/execve/libreflect
-	url = https://github.com/branchseer/libreflect

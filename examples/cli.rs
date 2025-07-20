@@ -1,20 +1,10 @@
-use std::{
-    env::{self, args_os},
-    ffi::OsStr,
-    io,
-    path::PathBuf,
-    pin::{Pin, pin},
-    process::ExitCode,
-};
+use std::{env::args_os, ffi::OsStr, io, path::PathBuf, pin::Pin};
 
 use fspy::{AccessMode, TrackedChild};
-use futures_util::future::{Either, select};
 use tokio::{
     fs::File,
     io::{AsyncWrite, stdout},
-    process::Command,
 };
-use which::which;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {

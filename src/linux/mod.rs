@@ -55,7 +55,7 @@ const EXECVE_HOST_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/fspy
 
 #[derive(Debug, Clone)]
 pub struct SpyInner {
-    execve_host_memfd: Arc<OwnedFd>,
+    preload_lib_memfd: Arc<OwnedFd>,
 }
 
 fn unset_fd_flag(fd: BorrowedFd<'_>, flag_to_remove: FdFlag) -> io::Result<()> {
@@ -85,9 +85,9 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
     command.resolve_program()?;
     let mut bump = Bump::new();
 
-    let execve_host_path = format!(
+    let preload_lib_path = format!(
         "/proc/self/fd/{}",
-        command.spy_inner.execve_host_memfd.as_raw_fd()
+        command.spy_inner.preload_lib_memfd.as_raw_fd()
     );
 
     let (sender, receiver) = tokio_seqpacket::UnixSeqpacket::pair()?;
@@ -95,7 +95,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
     unset_fl_flag(sender.as_fd(), OFlag::O_NONBLOCK)?;
 
     let payload = Payload {
-        execve_host_path: OsStr::from_bytes(execve_host_path.as_bytes()).into(),
+        preload_lib_path,
         ipc_fd: sender.as_raw_fd(),
         bootstrap: true,
     };
@@ -109,7 +109,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
         io::Result::Ok(())
     })?;
 
-    let execve_host_memfd = Arc::clone(&command.spy_inner.execve_host_memfd);
+    let execve_host_memfd = Arc::clone(&command.spy_inner.preload_lib_memfd);
     let mut command = command.into_tokio_command();
 
     unsafe {
@@ -167,7 +167,7 @@ impl SpyInner {
         let mut execve_host_memfile = File::from(execve_host_memfd);
         execve_host_memfile.write_all(EXECVE_HOST_BINARY)?;
         Ok(Self {
-            execve_host_memfd: Arc::new(OwnedFd::from(execve_host_memfile)),
+            preload_lib_memfd: Arc::new(OwnedFd::from(execve_host_memfile)),
         })
     }
 }

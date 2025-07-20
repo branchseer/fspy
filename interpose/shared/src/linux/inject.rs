@@ -1,12 +1,13 @@
 use std::{
-    ffi::{OsString},
+    ffi::{OsStr, OsString},
+    os::unix::ffi::OsStrExt,
     path::Path,
 };
 
 use allocator_api2::alloc::Allocator;
 
 use super::Payload;
-use crate::unix::cmdinfo::CommandInfo;
+use crate::unix::cmdinfo::{CommandInfo, ensure_env};
 
 pub struct PayloadWithEncodedString {
     pub payload: Payload,
@@ -14,20 +15,18 @@ pub struct PayloadWithEncodedString {
 }
 
 pub fn inject<'a, A: Allocator + Copy + 'a>(
-    alloc: A,
+    _alloc: A,
     command: &mut CommandInfo<'a, A>,
     payload_with_encoded_str: &'a PayloadWithEncodedString,
 ) -> nix::Result<()> {
-    command.parse_shebang(alloc)?;
-    let program = command.program;
-
-    command.program = Path::new(
+    ensure_env(
+        &mut command.envs,
+        OsStr::from_bytes(b"LD_PRELOAD"),
         payload_with_encoded_str
             .payload
-            .execve_host_path
-            .as_os_str(),
-    );
-    // [program] [encoded_payload] [args...]
-    command.args.splice(0..0, [ program.as_os_str(), payload_with_encoded_str.payload_string.as_os_str() ]);
+            .preload_lib_path
+            .as_str()
+            .as_ref(),
+    )?;
     Ok(())
 }

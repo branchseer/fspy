@@ -7,19 +7,20 @@ use std::{
     process::Command,
 };
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use xxhash_rust::xxh3::xxh3_128;
 
 fn command_with_clean_env(program: impl AsRef<OsStr>) -> Command {
     let mut command = Command::new(program);
     let mut envs = env::vars_os().collect::<Vec<(OsString, OsString)>>();
-    envs.retain(|(name, _)| if let Some(name_str) = name.to_str() {
-        !(name_str.starts_with("CARGO_") || name_str.starts_with("cargo_"))
-    } else {
-        true
+    envs.retain(|(name, _)| {
+        if let Some(name_str) = name.to_str() {
+            !(name_str.starts_with("CARGO_") || name_str.starts_with("cargo_"))
+        } else {
+            true
+        }
     });
-    command
-        .env_clear().envs(envs);
+    command.env_clear().envs(envs);
     command
 }
 
@@ -47,47 +48,18 @@ fn build_interpose() {
     // ])
 
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-    let (interpose_target, interpose_target_type, output_name) =
-        match env::var("CARGO_CFG_TARGET_OS").unwrap().as_str() {
-            "linux" => (
-                match target_arch.as_str() {
-                    "aarch64" | "x86_64" => format!("{}-unknown-linux-musl", &target_arch),
-                    _ => panic!("Unsuppported linux target arch: {}", &target_arch),
-                },
-                "--bins",
-                "fspy_interpose",
-            ),
-            "macos" => (
-                env::var("TARGET").unwrap(),
-                "--lib",
-                "libfspy_interpose.dylib",
-            ),
-            "windows" => (
-                // TODO: try gnullvm for cross-compiling
-                format!("{}-pc-windows-msvc", &target_arch),
-                "--lib",
-                "fspy_interpose.dll"
-            ),
-            other => panic!("Unsuppported target os: {}", other),
-        };
+    let (interpose_target, output_name) = match env::var("CARGO_CFG_TARGET_OS").unwrap().as_str() {
+        "linux" => (env::var("TARGET").unwrap(), "libfspy_interpose.so"),
+        "macos" => (env::var("TARGET").unwrap(), "libfspy_interpose.dylib"),
+        "windows" => (
+            // TODO: try gnullvm for cross-compiling
+            format!("{}-pc-windows-msvc", &target_arch),
+            "fspy_interpose.dll",
+        ),
+        other => panic!("Unsuppported target os: {}", other),
+    };
 
-    // let rustup_exit_status = command_with_clean_env("rustup")
-    //     .current_dir(&interpose_path)
-    //     .args(["target", "add", &interpose_target])
-    //     .status()
-    //     .unwrap();
-    // assert_eq!(rustup_exit_status.code(), Some(0));
-
-    if interpose_target == "aarch64-unknown-linux-musl" {
-        build_cmd.args([
-            "-Zbuild-std=std,panic_abort",
-            "--target",
-            "aarch64-unknown-linux-musl.json",
-        ]);
-    } else {
-        build_cmd.args(["--target", &interpose_target]);
-    }
-    build_cmd.arg(interpose_target_type);
+    build_cmd.args(["--target", &interpose_target]);
 
     let is_release = env::var("PROFILE").unwrap() == "release";
     if is_release {
@@ -99,13 +71,11 @@ fn build_interpose() {
     let interpose_path = out_dir.join("fspy_interpose");
     let interpose_hash_path = out_dir.join("fspy_interpose.hash");
 
-    let interpose_data = fs::read(
-        dbg!(interpose_target_dir
-            .join(&interpose_target)
-            .join(if is_release { "release" } else { "debug" })
-            .join(output_name)),
-    )
-    .unwrap();
+    let interpose_data_path = interpose_target_dir
+        .join(&interpose_target)
+        .join(if is_release { "release" } else { "debug" })
+        .join(output_name);
+    let interpose_data = fs::read(dbg!(interpose_data_path)).unwrap();
     let interpose_hash = xxh3_128(&interpose_data);
 
     fs::write(&interpose_path, interpose_data).unwrap();
@@ -160,30 +130,34 @@ fn download_and_unpack_tar_gz(url: &str, path: &str) -> anyhow::Result<Vec<u8>> 
 const MACOS_BINARY_DOWNLOADS: &[(&str, &[(&str, &str, u128)])] = &[
     (
         "aarch64",
-        &[(
-            "https://github.com/branchseer/oils-for-unix-binaries/releases/download/0.29.0-manual/oils-for-unix-0.29.0-aarch64-apple-darwin.tar.gz",
-            "oils-for-unix",
-            149945237112824769531360595981178091193,
-        ),
-        (
-            "https://github.com/uutils/coreutils/releases/download/0.1.0/coreutils-0.1.0-aarch64-apple-darwin.tar.gz",
-            "coreutils-0.1.0-aarch64-apple-darwin/coreutils",
-            255656813290649147736009964224176006890,
-        )],
+        &[
+            (
+                "https://github.com/branchseer/oils-for-unix-binaries/releases/download/0.29.0-manual/oils-for-unix-0.29.0-aarch64-apple-darwin.tar.gz",
+                "oils-for-unix",
+                149945237112824769531360595981178091193,
+            ),
+            (
+                "https://github.com/uutils/coreutils/releases/download/0.1.0/coreutils-0.1.0-aarch64-apple-darwin.tar.gz",
+                "coreutils-0.1.0-aarch64-apple-darwin/coreutils",
+                255656813290649147736009964224176006890,
+            ),
+        ],
     ),
     (
         "x86_64",
-        &[(
-            "https://github.com/branchseer/oils-for-unix-binaries/releases/download/0.29.0-manual/oils-for-unix-0.29.0-x86_64-apple-darwin.tar.gz",
-            "oils-for-unix",
-            286203014616009968685843701528129413859,
-        ),
-        (
-            "https://github.com/uutils/coreutils/releases/download/0.1.0/coreutils-0.1.0-x86_64-apple-darwin.tar.gz",
-            "coreutils-0.1.0-x86_64-apple-darwin/coreutils",
-            75344743234387926348628744659874018387,
-        )],
-    )
+        &[
+            (
+                "https://github.com/branchseer/oils-for-unix-binaries/releases/download/0.29.0-manual/oils-for-unix-0.29.0-x86_64-apple-darwin.tar.gz",
+                "oils-for-unix",
+                286203014616009968685843701528129413859,
+            ),
+            (
+                "https://github.com/uutils/coreutils/releases/download/0.1.0/coreutils-0.1.0-x86_64-apple-darwin.tar.gz",
+                "coreutils-0.1.0-x86_64-apple-darwin/coreutils",
+                75344743234387926348628744659874018387,
+            ),
+        ],
+    ),
 ];
 
 fn fetch_macos_binaries() -> anyhow::Result<()> {
