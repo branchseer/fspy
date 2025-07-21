@@ -80,26 +80,17 @@ pub unsafe extern "C" fn openat(
     mut args: ...
 ) -> c_int {
     let path_cstr = unsafe { CStr::from_ptr(path_ptr) };
-    libc_eprintln!("openat {:?}", path_cstr);
-
-    let original_openat = unsafe { libc::dlsym(libc::RTLD_NEXT, c"openat".as_ptr()) };
-    assert!(!original_openat.is_null());
-
-    let original_openat: unsafe extern "C" fn(
-        dirfd: c_int,
-        path_ptr: *const c_char,
-        flags: c_int,
-        args: ...
-    ) -> c_int = unsafe { transmute(original_openat) };
 
     if flags & libc::O_CREAT != 0 || flags & libc::O_TMPFILE != 0 {
         // https://github.com/tailhook/openat/issues/21#issuecomment-535914957
         let mode: libc::c_int = unsafe { args.arg() };
-        unsafe { original_openat(dirfd, path_ptr, flags, mode) }
+        unsafe { openat::original()(dirfd, path_ptr, flags, mode) }
     } else {
-        unsafe { original_openat(dirfd, path_ptr, flags) }
+        unsafe { openat::original()(dirfd, path_ptr, flags) }
     }
 }
+
+interpose!(openat(64): unsafe extern "C" fn(c_int, *const c_char, c_int, ...) -> c_int);
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn scandir64(
