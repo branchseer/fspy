@@ -1,5 +1,5 @@
 mod bindings;
-mod handler;
+pub mod handler;
 
 use std::{
     ffi::CStr,
@@ -9,6 +9,7 @@ use std::{
         fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd},
         raw::c_void,
     },
+    process::Command,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -20,10 +21,19 @@ use alloc::{alloc_seccomp_notif, alloc_seccomp_notif_resp};
 pub use bindings::*;
 use libc::{SECCOMP_GET_NOTIF_SIZES, c_int};
 use tokio::{
-    io::{Interest, unix::AsyncFd},
-    sync::Semaphore,
+    io::{unix::AsyncFd, Interest}, net::UnixStream, sync::Semaphore
 };
 
+// pub fn install_handler<H: handler::SeccompNotifyHandler>(
+//     command: &mut Command,
+//     handler: H,
+// ) -> io::Result<impl Future<Output = io::Result<()>>> {
+//     let (fd_sender, fd_receiver) = UnixStream::pair()?;
+//     async move {
+//         handler.handle_notify(todo!())?;
+//         Ok(())
+//     }
+// }
 
 pub async fn handle_unotify_fd(notify_fd: OwnedFd) -> io::Result<()> {
     let mut listener = bindings::NotifyListener::try_from(notify_fd)?;
@@ -40,6 +50,7 @@ pub async fn handle_unotify_fd(notify_fd: OwnedFd) -> io::Result<()> {
     let mut resp_buf = bindings::alloc::alloc_seccomp_notif_resp();
 
     while let Some(notify) = listener.next(&mut notify_buf).await? {
+        let x = notify.data.nr == const { syscalls::Sysno::openat as _ };
         let path_remote_ptr = if libc::c_long::from(notify.data.nr) == libc::SYS_openat {
             notify.data.args[1]
         } else {

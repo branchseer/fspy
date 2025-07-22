@@ -4,5 +4,5 @@
         "interpose/Cargo.toml",
     ],
     // don't pollute ./interpose with target folder
-    "rust-analyzer.cargo.targetDir": null
+    "rust-analyzer.cargo.targetDir": null,
 }

@@ -45,6 +45,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
+name = "arrayvec"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
+
+[[package]]
+name = "assertables"
+version = "9.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0118bf39618c9958c058d23c1453fdfc40c99688d9a0dfdc441244421ef89407"
+
+[[package]]
 name = "attohttpc"
 version = "0.29.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -377,6 +389,7 @@ version = "0.1.0"
 dependencies = [
  "allocator-api2",
  "anyhow",
+ "arrayvec",
  "attohttpc",
  "bincode",
  "bumpalo",
@@ -662,6 +675,17 @@ checksum = "3acae9609540aa318d1bc588455225fb2085b9ed0c4f6bd0d9d5bcd86f1a0344"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "io-uring"
+version = "0.7.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d93587f37623a1a17d94ef2bc9ada592f5465fe7732084ab7beefabe5c77c0c4"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "libc",
 ]
 
 [[package]]
@@ -1183,6 +1207,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "seccomp_unotify"
+version = "0.1.0"
+dependencies = [
+ "arrayvec",
+ "assertables",
+ "libc",
+ "nix",
+ "passfd",
+ "seccompiler",
+ "syscalls",
+ "tokio",
+]
+
+[[package]]
 name = "seccompiler"
 version = "0.5.0"
 source = "git+https://github.com/branchseer/seccompiler?branch=seccomp-action-raw#dbccf624efc19685e8b85beb7b0a9fdda0678da2"
@@ -1355,16 +1393,18 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.45.1"
+version = "1.46.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75ef51a33ef1da925cea3e4eb122833cb377c61439ca401b770f54902b806779"
+checksum = "0cc3a2344dafbe23a245241fe8b09735b521110d30fcefbbd5feb1797ca35d17"
 dependencies = [
  "backtrace",
  "bytes",
+ "io-uring",
  "libc",
  "mio",
  "pin-project-lite",
  "signal-hook-registry",
+ "slab",
  "socket2",
  "tokio-macros",
  "windows-sys 0.52.0",

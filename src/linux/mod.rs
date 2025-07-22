@@ -3,6 +3,7 @@
 // use tokio::process::Command;
 
 mod seccomp;
+mod syscall_handlers;
 
 use std::{
     ffi::{CString, OsStr, OsString},
