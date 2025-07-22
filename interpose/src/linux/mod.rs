@@ -72,8 +72,7 @@ pub unsafe extern "C" fn fopen(path_ptr: *const c_char, mode: *const c_char) -> 
     unsafe { original_fopen(path_ptr, mode) }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn openat(
+unsafe extern "C" fn openat(
     dirfd: c_int,
     path_ptr: *const c_char,
     flags: c_int,

@@ -389,7 +389,6 @@ dependencies = [
  "fspy_shared",
  "futures-util",
  "libc",
- "linux-raw-sys",
  "ms-detours",
  "nix",
  "ouroboros",
@@ -397,7 +396,9 @@ dependencies = [
  "phf",
  "rand 0.9.1",
  "ref-cast",
+ "seccompiler",
  "slab",
+ "syscalls",
  "tar",
  "tempfile",
  "tokio",
@@ -901,7 +902,7 @@ dependencies = [
 [[package]]
 name = "passfd"
 version = "0.2.0"
-source = "git+https://github.com/polachok/passfd?rev=d55881752c16aced1a49a75f9c428d38d3767213#d55881752c16aced1a49a75f9c428d38d3767213"
+source = "git+https://github.com/polachok/passfd#d55881752c16aced1a49a75f9c428d38d3767213"
 dependencies = [
  "futures-core",
  "libc",
@@ -1182,6 +1183,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "seccompiler"
+version = "0.5.0"
+source = "git+https://github.com/branchseer/seccompiler?branch=seccomp-action-raw#dbccf624efc19685e8b85beb7b0a9fdda0678da2"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "security-framework"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1303,6 +1312,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "syscalls"
+version = "0.6.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43d0e35dc7d73976a53c7e6d7d177ef804a0c0ee774ec77bcc520c2216fd7cbe"
 
 [[package]]
 name = "tar"

@@ -2,6 +2,8 @@
 
 // use tokio::process::Command;
 
+mod seccomp;
+
 use std::{
     ffi::{CString, OsStr, OsString},
     fs::File,
@@ -15,6 +17,7 @@ use std::{
         },
     },
     path::PathBuf,
+    ptr::null_mut,
     sync::{Arc, LazyLock},
     task::Poll,
 };
@@ -22,7 +25,8 @@ use std::{
 use allocator_api2::vec::Vec;
 use bincode::error::DecodeError;
 use bumpalo::Bump;
-use tokio::process::Child as TokioChild;
+use passfd::{FdPassingExt as _, tokio::FdPassingExt as _};
+use tokio::{net::UnixStream, process::Child as TokioChild};
 
 // use crate::FileSystemAccess;
 
@@ -82,7 +86,10 @@ fn unset_fl_flag(fd: BorrowedFd<'_>, flag_to_remove: OFlag) -> io::Result<()> {
 }
 
 pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild> {
-    command.resolve_program()?;
+    let (notify_fd_receiver, notify_fd_sender) = UnixStream::pair()?;
+    let notify_fd_sender = notify_fd_sender.into_std()?;
+    notify_fd_sender.set_nonblocking(false)?;
+
     let mut bump = Bump::new();
 
     let preload_lib_path = format!(
@@ -104,20 +111,44 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
         payload_string: encode_env(&payload),
         payload,
     };
-    command.with_info(&bump, |cmd_info| {
-        inject(&bump, cmd_info, &payload_with_str)?;
-        io::Result::Ok(())
-    })?;
+    // command.resolve_program()?;
+    // command.with_info(&bump, |cmd_info| {
+    //     inject(&bump, cmd_info, &payload_with_str)?;
+    //     io::Result::Ok(())
+    // })?;
 
     let execve_host_memfd = Arc::clone(&command.spy_inner.preload_lib_memfd);
     let mut command = command.into_tokio_command();
 
     unsafe {
         command.pre_exec(move || {
+            use seccompiler::{BpfProgram, SeccompAction, SeccompFilter};
             // make fds auto-inherit
             unset_fd_flag(execve_host_memfd.as_fd(), FdFlag::FD_CLOEXEC)?;
             unset_fd_flag(sender.as_fd(), FdFlag::FD_CLOEXEC)?;
             set_no_new_privs()?;
+            let filter = SeccompFilter::new(
+                [
+                    (syscalls::Sysno::openat as _, vec![]),
+                    #[cfg(target_arch = "x86_64")]
+                    (libc::SYS_mkdir, vec![]),
+                    #[cfg(target_arch = "x86_64")]
+                    (libc::SYS_open, vec![]),
+                ]
+                .into_iter()
+                .collect(),
+                SeccompAction::Allow,
+                SeccompAction::Raw(libc::SECCOMP_RET_USER_NOTIF),
+                std::env::consts::ARCH.try_into().unwrap(),
+            )
+            .unwrap();
+
+            let prog = BpfProgram::try_from(filter).unwrap();
+
+            let notify_fd = seccomp::listen_unotify_with_filter(&prog)?;
+
+            notify_fd_sender.send_fd(notify_fd.as_raw_fd())?;
+
             Ok(())
         });
     }
@@ -125,6 +156,8 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
     // drop channel_sender in the parent process,
     // so that channel_receiver reaches eof as soon as the last descendant process exits.
     drop(command);
+    let notify_fd = unsafe { OwnedFd::from_raw_fd(notify_fd_receiver.recv_fd().await?) };
+    let unotify_handle_result = tokio::spawn(seccomp::handle_unotify_fd(notify_fd));
 
     let accesses_future = async move {
         bump.reset();
@@ -147,6 +180,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
                     assert_eq!(decode_size, buf_in_bump.len());
                     acceses.push(access);
                 }
+                let () = unotify_handle_result.await??;
                 Ok(acceses.leak() as &[PathAccess<'_>])
             }
             .boxed_local()
