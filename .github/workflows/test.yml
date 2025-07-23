@@ -40,7 +40,6 @@ jobs:
       if: runner.os == 'Windows'
     - name: Build
       run: |
-        . "$HOME/.cargo/env"
         rustup show
         cargo test --no-run --workspace
     - name: Test
