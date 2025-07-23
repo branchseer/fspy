@@ -57,7 +57,10 @@ macro_rules! interpose_inner {
             #[unsafe(naked)]
             #[unsafe(export_name = ::core::stringify!($name))]
             unsafe extern "C" fn interpose_fn() {
-        ::core::arch::naked_asm!("b {}", sym $name);
+                #[cfg(target_arch = "aarch64")]
+                ::core::arch::naked_asm!("b {}", sym $name);
+                #[cfg(target_arch = "x86_64")]
+                ::core::arch::naked_asm!("jmp {}", sym $name);
             }
         };
         mod $name {
