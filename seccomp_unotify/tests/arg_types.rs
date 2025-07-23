@@ -62,7 +62,7 @@ async fn run_in_pre_exec(
 async fn fd_and_path() -> io::Result<()> {
     let syscalls = run_in_pre_exec(|| {
         set_current_dir("/")?;
-        let home_fd = nix::fcntl::open(c"/home", OFlag::O_PATH, Mode::empty()).unwrap();
+        let home_fd = nix::fcntl::open(c"/home", OFlag::O_PATH, Mode::empty())?;
         let _ = openat(home_fd, c"open_at_home", OFlag::O_RDONLY, Mode::empty());
         let _ = openat(AT_FDCWD, c"openat_cwd", OFlag::O_RDONLY, Mode::empty());
         Ok(())
