@@ -17,7 +17,10 @@ macro_rules! interpose {
             #[unsafe(naked)]
             #[unsafe(export_name = ::core::concat!(::core::stringify!($name), 64))]
             unsafe extern "C" fn interpose_fn() {
-        ::core::arch::naked_asm!("b {}", sym $name);
+                #[cfg(target_arch = "aarch64")]
+                ::core::arch::naked_asm!("b {}", sym $name);
+                #[cfg(target_arch = "x86_64")]
+                ::core::arch::naked_asm!("jmp {}", sym $name);
             }
         };
     };
@@ -40,6 +43,7 @@ macro_rules! interpose {
 
 #[doc(hidden)]
 pub fn symbol_exists() {}
+
 
 #[doc(hidden)]
 #[macro_export]
