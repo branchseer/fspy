@@ -13,10 +13,21 @@ jobs:
       matrix:
         include:
           - os: ubuntu-22.04-arm
+            shell: bash
           - os: ubuntu-22.04
+            shell: bash
+          - os: windows-2019
+            shell: wsl-bash {0}
+          - os: windows-11-arm
+            shell: wsl-bash {0}
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
     steps:
     - uses: actions/checkout@v4
+    - uses: Vampire/setup-wsl@v6
+      if: runner.os == 'Windows'
     - name: Build
       run: cargo test --no-run --workspace
     - name: Test
