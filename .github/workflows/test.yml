@@ -27,7 +27,7 @@ jobs:
         shell: ${{ matrix.shell }}
     steps:
     - uses: actions/checkout@v4
-    - uses: Vampire/setup-wsl@6819906081f7afebe0cfc34e838b6f8405045672
+    - uses: Vampire/setup-wsl@v6
       with:
         distribution: Ubuntu-22.04
       if: runner.os == 'Windows'
