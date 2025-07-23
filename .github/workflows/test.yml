@@ -16,10 +16,11 @@ jobs:
             shell: bash
           - os: ubuntu-22.04
             shell: bash
-          - os: windows-2019
+          - os: windows-2022
             shell: wsl-bash {0}
-          - os: windows-11-arm
-            shell: wsl-bash {0}
+          # WSL not working properly: https://github.com/actions/partner-runner-images/issues/109
+          # - os: windows-11-arm
+          #   shell: wsl-bash {0}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
