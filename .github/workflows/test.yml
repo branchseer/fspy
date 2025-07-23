@@ -30,6 +30,7 @@ jobs:
     - uses: Vampire/setup-wsl@v6
       with:
         distribution: Ubuntu-22.04
+        cache: false
       if: runner.os == 'Windows'
     - name: Install rust in WSL
       run: |
