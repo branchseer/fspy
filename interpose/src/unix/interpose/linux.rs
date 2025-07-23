@@ -62,7 +62,7 @@ macro_rules! interpose_inner {
                 static LAZY: std::sync::LazyLock<$fn_sig> = std::sync::LazyLock::new(|| unsafe {
                     ::core::mem::transmute_copy(&libc::dlsym(
                         libc::RTLD_NEXT,
-                        ::core::concat!(::core::stringify!($name), "\0").as_ptr(),
+                        ::core::concat!(::core::stringify!($name), "\0").as_ptr().cast(),
                     ))
                 });
                 *LAZY
