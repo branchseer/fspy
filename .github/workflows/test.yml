@@ -29,6 +29,9 @@ jobs:
     - uses: actions/checkout@v4
     - uses: Vampire/setup-wsl@v6
       if: runner.os == 'Windows'
+    - name: Install rust in WSL
+      run: curl https://sh.rustup.rs -sSf | sh -s -- -y # https://github.com/rust-lang/rustup/issues/297#issuecomment-589949164
+      if: runner.os == 'Windows'
     - name: Build
       run: cargo test --no-run --workspace
     - name: Test
