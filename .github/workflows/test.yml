@@ -1,0 +1,22 @@
+name: Test
+
+on:
+    workflow_dispatch
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04-arm
+          - os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo test --no-run --workspace
+    - name: Test
+      run: cargo test --workspace
