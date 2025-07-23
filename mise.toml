@@ -2,5 +2,6 @@
 hyperfine = "1.19.0"
 # node = "24.1.0"
 # yarn = "4.6.0"
-# cargo-binstall = "1.12.3"
-# "cargo:bindgen-cli" = "0.71.1"
+cargo-binstall = "1.14.1"
+"cargo:cargo-zigbuild" = "0.20.1"
+zig = "0.14.1"
