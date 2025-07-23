@@ -30,7 +30,7 @@ jobs:
     - uses: Vampire/setup-wsl@v6
       with:
         distribution: Ubuntu-22.04
-        cache: false
+        wsl-shell-command: bash -euo pipefail
       if: runner.os == 'Windows'
     - name: Install rust in WSL
       run: |
@@ -40,12 +40,7 @@ jobs:
       if: runner.os == 'Windows'
     - name: Build
       run: |
-        # temp fix for setup-wsl's bash not loading .profile by default:
-        # https://github.com/Vampire/setup-wsl/blob/6819906081f7afebe0cfc34e838b6f8405045672/README.md#wsl-shell-command
-        . "$HOME/.cargo/env"
         rustup show
         cargo test --no-run --workspace
     - name: Test
-      run: |
-        . "$HOME/.cargo/env"
-        cargo test --workspace
+      run: cargo test --workspace
