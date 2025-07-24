@@ -8,7 +8,7 @@ pub use native_str::NativeString;
 
 pub const BINCODE_CONFIG: Configuration = bincode::config::standard();
 
-#[derive(Encode, BorrowDecode, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Encode, BorrowDecode, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub enum AccessMode {
     Read,
     Write,
@@ -16,7 +16,7 @@ pub enum AccessMode {
     ReadDir,
 }
 
-#[derive(Encode, BorrowDecode, Debug)]
+#[derive(Encode, BorrowDecode, Debug, Clone, Copy)]
 pub struct PathAccess<'a> {
     pub mode: AccessMode,
     pub path: NativeStr<'a>,

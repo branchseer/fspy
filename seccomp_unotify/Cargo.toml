@@ -9,11 +9,12 @@ seccompiler = { git = "https://github.com/branchseer/seccompiler", branch = "sec
 arrayvec = "0.7.6"
 libc = "0.2.174"
 syscalls = { version = "0.6.18", default-features = false, features = ["std"] }
-tokio = { version = "1.46.1",  features = [ "net", "process" ] }
+tokio = { version = "1.46.1",  features = [ "net", "process", "io-util" ] }
 nix = { version = "0.30.1", features = [ "process", "fs" ] }
 passfd = { git = "https://github.com/polachok/passfd", features = [ "async" ] }
+bytes = "1.10.1"
 
 [dev-dependencies]
-tokio = { version = "1.46.1",  features = [ "rt", "macros" ] }
+tokio = { version = "1.46.1", features = [ "rt", "macros" ] }
 nix = { version = "0.30.1", features = [ "fs" ] }
 assertables = "9.8.1"

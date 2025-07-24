@@ -2,14 +2,14 @@
 
 // use tokio::process::Command;
 
-mod seccomp;
-mod syscall_handlers;
+mod syscall_handler;
 
 use std::{
     ffi::{CString, OsStr, OsString},
     fs::File,
     io::{self, Write},
     mem::ManuallyDrop,
+    ops::ControlFlow,
     os::{
         fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
         unix::{
@@ -22,11 +22,13 @@ use std::{
     sync::{Arc, LazyLock},
     task::Poll,
 };
+use syscall_handler::SyscallHandler;
 
 use allocator_api2::vec::Vec;
 use bincode::error::DecodeError;
 use bumpalo::Bump;
 use passfd::{FdPassingExt as _, tokio::FdPassingExt as _};
+use seccomp_unotify::install_handler;
 use tokio::{net::UnixStream, process::Child as TokioChild};
 
 // use crate::FileSystemAccess;
@@ -54,7 +56,7 @@ use nix::{
 use tokio_seqpacket::UnixSeqpacket;
 use which::which;
 
-use crate::{Command, PathAccesses, PathAccessesAsyncSendTryBuilder, TrackedChild};
+use crate::{Command, TrackedChild, arena::PathAccessArena};
 
 const EXECVE_HOST_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/fspy_interpose"));
 
@@ -86,13 +88,20 @@ fn unset_fl_flag(fd: BorrowedFd<'_>, flag_to_remove: OFlag) -> io::Result<()> {
     Ok(())
 }
 
+pub struct PathAccessIterable {
+    arenas: Vec<PathAccessArena>,
+}
+
+impl PathAccessIterable {
+    pub fn iter(&self) -> impl Iterator<Item = PathAccess<'_>> {
+        self.arenas
+            .iter()
+            .flat_map(|arena| arena.borrow_accesses().iter())
+            .copied()
+    }
+}
+
 pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild> {
-    let (notify_fd_receiver, notify_fd_sender) = UnixStream::pair()?;
-    let notify_fd_sender = notify_fd_sender.into_std()?;
-    notify_fd_sender.set_nonblocking(false)?;
-
-    let mut bump = Bump::new();
-
     let preload_lib_path = format!(
         "/proc/self/fd/{}",
         command.spy_inner.preload_lib_memfd.as_raw_fd()
@@ -123,72 +132,27 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
 
     unsafe {
         command.pre_exec(move || {
-            use seccompiler::{BpfProgram, SeccompAction, SeccompFilter};
-            // make fds auto-inherit
+            // make ipc fd auto-inherit
             unset_fd_flag(execve_host_memfd.as_fd(), FdFlag::FD_CLOEXEC)?;
-            unset_fd_flag(sender.as_fd(), FdFlag::FD_CLOEXEC)?;
-            set_no_new_privs()?;
-            let filter = SeccompFilter::new(
-                [
-                    (syscalls::Sysno::openat as _, vec![]),
-                    #[cfg(target_arch = "x86_64")]
-                    (libc::SYS_mkdir, vec![]),
-                    #[cfg(target_arch = "x86_64")]
-                    (libc::SYS_open, vec![]),
-                ]
-                .into_iter()
-                .collect(),
-                SeccompAction::Allow,
-                SeccompAction::Raw(libc::SECCOMP_RET_USER_NOTIF),
-                std::env::consts::ARCH.try_into().unwrap(),
-            )
-            .unwrap();
-
-            let prog = BpfProgram::try_from(filter).unwrap();
-
-            let notify_fd = seccomp::listen_unotify_with_filter(&prog)?;
-
-            notify_fd_sender.send_fd(notify_fd.as_raw_fd())?;
-
             Ok(())
         });
     }
+    let unotify_loop = install_handler::<SyscallHandler>(&mut command)?;
+
     let child = command.spawn()?;
     // drop channel_sender in the parent process,
     // so that channel_receiver reaches eof as soon as the last descendant process exits.
     drop(command);
-    let notify_fd = unsafe { OwnedFd::from_raw_fd(notify_fd_receiver.recv_fd().await?) };
-    let unotify_handle_result = tokio::spawn(seccomp::handle_unotify_fd(notify_fd));
 
     let accesses_future = async move {
-        bump.reset();
-        PathAccesses::try_new_async(bump, |bump| {
-            async move {
-                let mut buf = [0u8; 32768];
-                let mut acceses = Vec::<PathAccess<'_>, &Bump>::with_capacity_in(1024, bump);
-                loop {
-                    let n = receiver.recv(&mut buf).await?;
-                    if n == 0 {
-                        break;
-                    }
-                    if n == buf.len() {
-                        return Err(nix::Error::ENAMETOOLONG.into());
-                    }
-                    let buf_in_bump: &[u8] = bump.alloc_slice_copy(&buf[..n]);
-                    let (access, decode_size): (PathAccess, usize) =
-                        bincode::borrow_decode_from_slice(buf_in_bump, BINCODE_CONFIG)
-                            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
-                    assert_eq!(decode_size, buf_in_bump.len());
-                    acceses.push(access);
-                }
-                let () = unotify_handle_result.await??;
-                Ok(acceses.leak() as &[PathAccess<'_>])
-            }
-            .boxed_local()
-        })
-        .await
+        let handlers = unotify_loop.await?;
+        let arenas = handlers
+            .into_iter()
+            .map(|handler| handler.arena)
+            .collect::<Vec<_>>();
+        io::Result::Ok(PathAccessIterable { arenas })
     }
-    .boxed_local();
+    .boxed();
 
     Ok(TrackedChild {
         tokio_child: child,

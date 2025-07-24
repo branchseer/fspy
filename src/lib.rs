@@ -22,33 +22,23 @@ mod os_impl;
 mod os_impl;
 
 mod command;
+mod arena;
 
 use std::{env::temp_dir, ffi::OsStr, fs::create_dir, io, sync::OnceLock};
 
+use allocator_api2::vec::Vec;
 pub use command::Command;
-use futures_util::future::{BoxFuture, LocalBoxFuture};
+use futures_util::future::{BoxFuture};
 use os_impl::SpyInner;
 use tokio::process::Child;
+use bumpalo::Bump;
 pub use fspy_shared::ipc::PathAccess;
 pub use fspy_shared::ipc::AccessMode;
 
-#[ouroboros::self_referencing]
-pub struct PathAccesses {
-    bump: bumpalo::Bump,
-    #[borrows(bump)]
-    #[covariant]
-    accesses: &'this [PathAccess<'this>],
-}
-
-impl PathAccesses {
-    pub fn as_slice(&self) -> &[PathAccess<'_>] {
-        self.borrow_accesses()
-    }
-}
 
 pub struct TrackedChild {
     pub tokio_child: Child,
-    pub accesses_future: LocalBoxFuture<'static, io::Result<PathAccesses>>,
+    pub accesses_future: BoxFuture<'static, io::Result<os_impl::PathAccessIterable>>,
 }
 
 pub struct Spy(SpyInner);

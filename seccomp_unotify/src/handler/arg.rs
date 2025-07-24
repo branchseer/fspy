@@ -1,11 +1,11 @@
 use std::{
-    ffi::{CStr, OsString},
-    io,
-    os::{fd::RawFd, raw::c_void},
+    ffi::{CStr, OsString}, io, mem::{transmute, MaybeUninit}, os::{fd::RawFd, raw::c_void}
 };
 
 use arrayvec::ArrayVec;
-use libc::seccomp_notif;
+use bytes::BufMut;
+use libc::{pid_t, seccomp_notif};
+use tokio::io::ReadBuf;
 
 pub trait FromSyscallArg: Sized {
     fn from_syscall_arg(pid: u32, arg: u64) -> io::Result<Self>;
@@ -13,49 +13,70 @@ pub trait FromSyscallArg: Sized {
 
 #[derive(Debug)]
 pub struct CStrPtr {
-    pid: u32,
+    pid: pid_t,
     remote_ptr: *mut c_void,
 }
 
 impl CStrPtr {
-    pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
-        let local_iov = libc::iovec {
-            iov_base: buf.as_mut_ptr().cast(),
-            iov_len: buf.len(),
-        };
+    pub fn read<B: BufMut>(&self, buf: &mut B) -> io::Result<()> {
+        loop {
+            let chunk = buf.chunk_mut();
+            if chunk.len() == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidFilename,
+                    "CStrPtr::read: buf is filled before null-terminator is found"
+                ))
+            }
 
-        let remote_iov = libc::iovec {
-            iov_base: self.remote_ptr,
-            iov_len: buf.len(),
-        };
+            let local_iov = libc::iovec {
+                iov_base: chunk.as_mut_ptr().cast(),
+                iov_len: chunk.len(),
+            };
 
-        // TODO: loop partitial read
-        let read_size = unsafe {
-            libc::process_vm_readv(
-                self.pid.try_into().unwrap(),
-                &local_iov,
-                1,
-                &remote_iov,
-                1,
-                0,
-            )
-        };
+            let remote_iov = libc::iovec {
+                iov_base: self.remote_ptr,
+                iov_len: chunk.len(),
+            };
 
-        let Ok(read_size) = usize::try_from(read_size) else {
-            return Err(io::Error::last_os_error());
-        };
+            // TODO: loop partitial read
+            let read_size = unsafe {
+                libc::process_vm_readv(
+                    self.pid,
+                    &local_iov,
+                    1,
+                    &remote_iov,
+                    1,
+                    0,
+                )
+            };
 
-        let cstr = CStr::from_bytes_until_nul(&buf[..read_size])
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+            let Ok(read_size) = usize::try_from(read_size) else {
+                return Err(io::Error::last_os_error());
+            };
 
-        Ok(cstr.count_bytes())
+            // chunk[..read_size] are all initiliazed, but we are only going to advance until '\0'
+            let chunk = unsafe { transmute::<&[MaybeUninit<u8>], &[u8]>(&chunk.as_uninit_slice_mut()[..read_size]) }; 
+            let Some(nul_index) = chunk.iter().position(|byte| *byte == b'\0') else {
+                // No '\0' found, could be a partitial read, advance all of `read_size` and continue reading.
+                unsafe { buf.advance_mut(read_size) };
+                continue;
+            };
+            unsafe { buf.advance_mut(nul_index) };
+            return Ok(())
+        }
+    }
+    pub fn read_with_buf<const BUF_SIZE: usize, R, F: FnOnce(&[u8]) -> io::Result<R>>(&self, f: F) -> io::Result<R> {
+        let mut read_buf: [MaybeUninit<u8>; 32768] = [const { MaybeUninit::uninit() }; 32768];
+        let mut read_buf = ReadBuf::uninit(read_buf.as_mut_slice());
+        self.read(&mut read_buf)?;
+        f(read_buf.filled())
     }
 }
 
 impl FromSyscallArg for CStrPtr {
     fn from_syscall_arg(pid: u32, arg: u64) -> io::Result<Self> {
         Ok(Self {
-            pid,
+            pid: pid as _,
             remote_ptr: arg as _,
         })
     }

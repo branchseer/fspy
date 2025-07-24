@@ -1,5 +1,5 @@
 use crate::{
-    os_impl::{self, spawn_impl}, PathAccesses, TrackedChild
+    os_impl::{self, spawn_impl}, TrackedChild
 };
 use std::{
     collections::HashMap,

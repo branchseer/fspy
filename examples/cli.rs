@@ -37,7 +37,7 @@ async fn main() -> io::Result<()> {
 
     let mut csv_writer = csv_async::AsyncWriter::from_writer(out_file);
 
-    for acc in acceses.as_slice() {
+    for acc in acceses.iter() {
         path_count += 1;
         csv_writer
             .write_record(&[

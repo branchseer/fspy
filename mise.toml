@@ -1,6 +1,6 @@
 [tools]
 hyperfine = "1.19.0"
-# node = "24.1.0"
+node = "24.1.0"
 # yarn = "4.6.0"
 cargo-binstall = "1.14.1"
 "cargo:cargo-zigbuild" = "0.20.1"

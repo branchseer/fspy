@@ -2,12 +2,11 @@ use assertables::assert_contains;
 use nix::fcntl::{AT_FDCWD, OFlag, openat};
 use nix::sys::stat::Mode;
 use seccomp_unotify::install_handler;
-use std::env::set_current_dir;
-use std::ffi::OsStr;
+use std::env::{current_dir, set_current_dir};
 use std::ffi::OsString;
+use std::ffi::{CString, OsStr};
 use std::io;
-use std::os::unix::ffi::OsStrExt;
-use std::sync::{Arc, Mutex};
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
 use seccomp_unotify::{
     handler::arg::{CStrPtr, Fd},
@@ -15,23 +14,20 @@ use seccomp_unotify::{
 };
 use tokio::{process::Command, task::spawn_blocking};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 enum Syscall {
     Openat { at_dir: OsString, path: OsString },
 }
 
-#[derive(Default)]
-struct SyscallRecorder(Arc<Mutex<Vec<Syscall>>>);
+#[derive(Default, Clone, Debug)]
+struct SyscallRecorder(Vec<Syscall>);
 impl SyscallRecorder {
-    fn openat(&self, (fd, path): (Fd, CStrPtr)) -> io::Result<()> {
+    fn openat(&mut self, (fd, path): (Fd, CStrPtr)) -> io::Result<()> {
         let at_dir = fd.get_path()?;
-        let mut path_buf = [0; 1024];
-        let path_len = path.read(&mut path_buf)?;
-        let path = OsStr::from_bytes(&path_buf[..path_len]).to_os_string();
-        self.0
-            .lock()
-            .unwrap()
-            .push(Syscall::Openat { at_dir, path });
+        let path = path.read_with_buf::<32768, _, _>(|path: &[u8]| {
+            Ok(OsStr::from_bytes(path).to_os_string())
+        })?;
+        self.0.push(Syscall::Openat { at_dir, path });
         Ok(())
     }
 }
@@ -41,10 +37,8 @@ impl_handler!(SyscallRecorder, openat);
 async fn run_in_pre_exec(
     mut f: impl FnMut() -> io::Result<()> + Send + Sync + 'static,
 ) -> io::Result<Vec<Syscall>> {
-    let syscalls: Arc<Mutex<Vec<Syscall>>> = Default::default();
-    let recorder = SyscallRecorder(syscalls.clone());
     let mut cmd = Command::new("/bin/echo");
-    let handle_loop = install_handler(&mut cmd, recorder)?;
+    let handle_loop = install_handler::<SyscallRecorder>(&mut cmd)?;
     unsafe {
         cmd.pre_exec(move || {
             f()?;
@@ -52,10 +46,13 @@ async fn run_in_pre_exec(
         });
     }
     let child_fut = spawn_blocking(move || cmd.spawn());
-    handle_loop.await?;
+    let recorders = handle_loop.await?;
     child_fut.await.unwrap()?.wait().await?; // lol
-    let syscalls = Arc::into_inner(syscalls).expect("handler should have been dropped");
-    Ok(syscalls.into_inner().unwrap())
+    let syscalls = recorders
+        .into_iter()
+        .map(|recorder| recorder.0.into_iter())
+        .flatten();
+    Ok(syscalls.collect())
 }
 
 #[tokio::test]
@@ -68,7 +65,6 @@ async fn fd_and_path() -> io::Result<()> {
         Ok(())
     })
     .await?;
-
     assert_contains!(
         syscalls,
         &Syscall::Openat {
@@ -90,5 +86,48 @@ async fn fd_and_path() -> io::Result<()> {
             path: "openat_cwd".into(),
         }
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn path_long() -> io::Result<()> {
+    let long_path = [b'a'].repeat(30000);
+    let long_path_cstr = CString::new(long_path.as_slice()).unwrap();
+    let syscalls = run_in_pre_exec(move || {
+        let _ = openat(
+            AT_FDCWD,
+            long_path_cstr.as_c_str(),
+            OFlag::O_RDONLY,
+            Mode::empty(),
+        );
+        Ok(())
+    })
+    .await?;
+    assert_contains!(
+        syscalls,
+        &Syscall::Openat {
+            at_dir: current_dir().unwrap().into(),
+            path: OsString::from_vec(long_path),
+        }
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn path_overflow() -> io::Result<()> {
+    let long_path = [b'a'].repeat(40000);
+    let long_path_cstr = CString::new(long_path.as_slice()).unwrap();
+    let ret = run_in_pre_exec(move || {
+        let _ = openat(
+            AT_FDCWD,
+            long_path_cstr.as_c_str(),
+            OFlag::O_RDONLY,
+            Mode::empty(),
+        );
+        Ok(())
+    })
+    .await;
+    let err = ret.unwrap_err();
+    assert_eq!(err.kind(), io::ErrorKind::InvalidFilename);
     Ok(())
 }
