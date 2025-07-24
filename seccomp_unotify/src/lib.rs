@@ -65,12 +65,12 @@ pub fn install_handler<H: handler::SeccompNotifyHandler + Send + Default + 'stat
         for _ in 0..parallelism {
             let notify_fd = notify_fd.try_clone()?;
             let mut handler = H::default();
-            join_set.spawn(async move {
+            join_set.spawn_blocking(move || {
                 let _span = span!(Level::TRACE, "notify loop");
                 let listener = bindings::NotifyListener::try_from(notify_fd)?;
                 let mut notify_buf = alloc_seccomp_notif();
                 let mut resp_buf = alloc_seccomp_notif_resp();
-                while let Some(notify) = listener.next(&mut notify_buf).await? {
+                while let Some(notify) = listener.next(&mut notify_buf)? {
                     let _span = span!(Level::TRACE, "notify loop tick");
                     // Errors on the supervisor side shouldn't block the syscall.
                     let handle_result = handler.handle_notify(notify);

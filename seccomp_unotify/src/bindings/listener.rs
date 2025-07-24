@@ -2,29 +2,28 @@ use libc::{seccomp_notif, seccomp_notif_resp};
 use tracing::trace;
 use std::{
     io,
-    os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd},
+    os::fd::{AsRawFd, OwnedFd},
 };
 
 use super::alloc::{Alloced};
-use tokio::io::unix::AsyncFd;
 
 pub struct NotifyListener {
-    async_fd: AsyncFd<OwnedFd>,
+    fd: OwnedFd,
 }
 
 impl TryFrom<OwnedFd> for NotifyListener {
     type Error = io::Error;
-    fn try_from(value: OwnedFd) -> Result<Self, Self::Error> {
+    fn try_from(fd: OwnedFd) -> Result<Self, Self::Error> {
         Ok(Self {
-            async_fd: AsyncFd::new(value)?,
+            fd
         })
     }
 }
-impl AsFd for NotifyListener {
-    fn as_fd(&self) -> BorrowedFd<'_> {
-        self.async_fd.as_fd()
-    }
-}
+// impl AsFd for NotifyListener {
+//     fn as_fd(&self) -> BorrowedFd<'_> {
+//         self.async_fd.as_fd()
+//     }
+// }
 
 const SECCOMP_IOCTL_NOTIF_SEND: libc::c_ulong = 3222806785;
 const SECCOMP_IOCTL_NOTIF_RECV: libc::c_ulong = 3226476800;
@@ -42,7 +41,7 @@ impl NotifyListener {
 
         let ret = unsafe {
             libc::ioctl(
-                self.async_fd.as_raw_fd(),
+                self.fd.as_raw_fd(),
                 SECCOMP_IOCTL_NOTIF_SEND,
                 &raw mut *resp,
             )
@@ -57,39 +56,28 @@ impl NotifyListener {
         };
         Ok(())
     }
-    pub async fn next<'a>(
+    // Awaiting readable on AsyncFd doesn't work on older kernels like the one in Ubuntu 22.04 or WSL2.
+    // Let's stick to the blocking approach for now
+    pub fn next<'a>(
         &self,
         buf: &'a mut Alloced<seccomp_notif>,
     ) -> io::Result<Option<&'a seccomp_notif>> {
         let notif_buf = buf.zeroed();
 
         loop {
-            let mut ready_guard = self.async_fd.readable().await?;
-            let ready = ready_guard.ready();
-            trace!("notify fd readable: {:?}", ready);
-            if ready.is_read_closed() || ready.is_write_closed() {
-                return Ok(None);
-            }
-
-            if !ready.is_readable() {
-                continue;
-            }
-            // TODO: check why this call solves the issue that `is_read_closed || is_write_closed` is never true.
-            ready_guard.clear_ready();
-
-            let raw_notify_fd = ready_guard.get_inner().as_raw_fd();
             let ret = unsafe {
-                libc::ioctl(raw_notify_fd, SECCOMP_IOCTL_NOTIF_RECV, &raw mut *notif_buf)
+                libc::ioctl(self.fd.as_raw_fd(), SECCOMP_IOCTL_NOTIF_RECV, &raw mut *notif_buf)
             };
 
             if ret < 0 {
                 let err = nix::Error::last();
                 match err {
-                    nix::Error::EINTR | nix::Error::EWOULDBLOCK | nix::Error::ENOENT => continue,
+                    nix::Error::EINTR => continue,
+                    nix::Error::ENOENT => return Ok(None),
                     other => return Err(other.into()),
                 }
             }
-            return Ok(Some(notif_buf));
+            return Ok(Some(notif_buf))
         }
     }
 }
