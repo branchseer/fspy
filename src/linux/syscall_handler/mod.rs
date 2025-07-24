@@ -46,6 +46,6 @@ impl SyscallHandler {
 
 impl_handler!(
     SyscallHandler,
-    // openat
+    openat
     getdents64
 );

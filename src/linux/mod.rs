@@ -122,12 +122,12 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
         payload_string: encode_env(&payload),
         payload,
     };
-    command.resolve_program()?;
-    let bump = Bump::new();
-    command.with_info(&bump, |cmd_info| {
-        inject(&bump, cmd_info, &payload_with_str)?;
-        io::Result::Ok(())
-    })?;
+    // command.resolve_program()?;
+    // let bump = Bump::new();
+    // command.with_info(&bump, |cmd_info| {
+    //     inject(&bump, cmd_info, &payload_with_str)?;
+    //     io::Result::Ok(())
+    // })?;
 
     let execve_host_memfd = Arc::clone(&command.spy_inner.preload_lib_memfd);
     let mut command = command.into_tokio_command();
