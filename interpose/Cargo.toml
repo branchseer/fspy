@@ -30,7 +30,7 @@ allocator-api2 = { version = "0.2.21", default-features = false, features = [
 ] }
 const_format = "0.2.34"
 
-[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+[target.'cfg(unix)'.dependencies]
 libc = "0.2.172"
 lexical-core = { version = "1.0.5", default-features = false, features = [
     "parse-integers",
@@ -38,6 +38,7 @@ lexical-core = { version = "1.0.5", default-features = false, features = [
 bstr = { version = "1.12.0", default-features = false }
 socket2 = "0.5.10"
 ctor = "0.4.2"
+thread_local = "1.1.9"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 phf = { version = "0.11.3", features = ["macros"] }
@@ -87,4 +88,3 @@ ref-cast = "1.0.24"
 which = "7.0.3"
 fspy_shared = { path = "shared" }
 ntapi = "0.4.1"
-dashmap = "6.1.0"

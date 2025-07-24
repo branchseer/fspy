@@ -4,45 +4,57 @@ use std::{
     fs::File,
     mem::MaybeUninit,
     os::fd::{FromRawFd as _, RawFd},
+    sync::LazyLock,
 };
 
-use allocator_api2::vec::Vec;
 use bincode::encode_into_std_write;
 use fspy_shared::{
     ipc::{AccessMode, BINCODE_CONFIG, NativeStr, NativeString, PathAccess},
     linux::{
-        Payload,
+        PAYLOAD_ENV_NAME, Payload,
         inject::{PayloadWithEncodedString, inject},
-        nul_term::{Env, NulTerminated, find_env},
     },
-    unix::cmdinfo::RawCommand,
+    unix::{cmdinfo::RawCommand, env::decode_env},
 };
-use lexical_core::parse;
+
 use libc::{c_char, c_int};
 use nix::sys::socket::MsgFlags;
-use socket2::Socket;
+use thread_local::ThreadLocal;
 
 use crate::linux::{
-    alloc::{StackAllocator, with_stack_allocator},
     path::resolve_path,
 };
 
 pub struct Client {
-    pub program: &'static OsStr,
-    pub payload_with_str: PayloadWithEncodedString,
+    payload_with_str: PayloadWithEncodedString,
+    tls_shm: ThreadLocal<&'static mut [u8]>,
 }
 
+const SHM_CHUNK_SIZE: usize = 65535;
+
 impl Client {
-    pub unsafe fn handle_exec(
-        &self,
-        alloc: StackAllocator<'_>,
-        raw_command: &mut RawCommand,
-    ) -> nix::Result<()> {
-        let mut cmd = unsafe { raw_command.into_command(alloc) };
-        inject(alloc, &mut cmd, &self.payload_with_str)?;
-        *raw_command = RawCommand::from_command(alloc, &cmd);
-        Ok(())
+    fn from_env() -> Self {
+        let payload_string = std::env::var_os(PAYLOAD_ENV_NAME).unwrap();
+        let payload = decode_env::<Payload>(&payload_string);
+        Self {
+            payload_with_str: PayloadWithEncodedString {
+                payload,
+                payload_string,
+            },
+            tls_shm: ThreadLocal::new(),
+        }
     }
+    // pub unsafe fn handle_exec(
+    //     &self,
+    //     alloc: StackAllocator<'_>,
+    //     raw_command: &mut RawCommand,
+    // ) -> nix::Result<()> {
+    //     let mut cmd = unsafe { raw_command.into_command(alloc) };
+    //     inject(alloc, &mut cmd, &self.payload_with_str)?;
+    //     *raw_command = RawCommand::from_command(alloc, &cmd);
+    //     Ok(())
+    // }
+
     pub unsafe fn handle_open(
         &self,
         dirfd: c_int,
@@ -78,10 +90,7 @@ impl Client {
 
 static CLIENT: SyncUnsafeCell<MaybeUninit<Client>> = SyncUnsafeCell::new(MaybeUninit::uninit());
 
-pub unsafe fn init_global_client(client: Client) {
-    unsafe { *CLIENT.get() = MaybeUninit::new(client) };
-}
-
 pub unsafe fn global_client() -> &'static Client {
-    unsafe { (*CLIENT.get()).assume_init_ref() }
+    static CLIENT: LazyLock<Client> = LazyLock::new(|| Client::from_env());
+    &CLIENT
 }

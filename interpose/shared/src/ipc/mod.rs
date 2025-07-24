@@ -1,3 +1,4 @@
+pub mod shm;
 mod native_str;
 
 use bincode::{config::Configuration, BorrowDecode, Encode};

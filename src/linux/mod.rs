@@ -107,33 +107,36 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
         command.spy_inner.preload_lib_memfd.as_raw_fd()
     );
 
-    let (sender, receiver) = tokio_seqpacket::UnixSeqpacket::pair()?;
+    let (sender, receiver) = UnixStream::pair()?;
+
+    let sender = sender.into_std()?;
+    sender.set_nonblocking(false)?;
     let sender = OwnedFd::from(sender);
-    unset_fl_flag(sender.as_fd(), OFlag::O_NONBLOCK)?;
 
     let payload = Payload {
         preload_lib_path,
         ipc_fd: sender.as_raw_fd(),
-        bootstrap: true,
     };
-
+    
     let payload_with_str = PayloadWithEncodedString {
         payload_string: encode_env(&payload),
         payload,
     };
-    // command.resolve_program()?;
-    // command.with_info(&bump, |cmd_info| {
-    //     inject(&bump, cmd_info, &payload_with_str)?;
-    //     io::Result::Ok(())
-    // })?;
+    command.resolve_program()?;
+    let bump = Bump::new();
+    command.with_info(&bump, |cmd_info| {
+        inject(&bump, cmd_info, &payload_with_str)?;
+        io::Result::Ok(())
+    })?;
 
     let execve_host_memfd = Arc::clone(&command.spy_inner.preload_lib_memfd);
     let mut command = command.into_tokio_command();
 
     unsafe {
         command.pre_exec(move || {
-            // make ipc fd auto-inherit
+            // don't close ipc fd on execve
             unset_fd_flag(execve_host_memfd.as_fd(), FdFlag::FD_CLOEXEC)?;
+            unset_fd_flag(sender.as_fd(), FdFlag::FD_CLOEXEC)?;
             Ok(())
         });
     }

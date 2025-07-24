@@ -51,8 +51,6 @@ pub fn resolve_path(dirfd: RawFd, c_pathname: &CStr) -> nix::Result<Cow<'_, CStr
         _ => get_fd_path(dirfd)?,
     };
 
-    libc_print::libc_eprintln!("ffew");
-
     let mut dir_path = dir_path.into_vec();
 
     // Paths shouldn't be normalized: https://github.com/rust-lang/rust/issues/14028

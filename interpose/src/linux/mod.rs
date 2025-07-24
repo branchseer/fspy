@@ -1,8 +1,7 @@
 mod abort;
-mod alloc;
+
 mod bootstrap;
 mod client;
-mod handler;
 mod params;
 mod path;
 
@@ -36,8 +35,6 @@ use lexical_core::parse;
 use libc::{c_char, c_int};
 use libc_print::libc_eprintln;
 use socket2::Socket;
-
-use client::{Client, init_global_client};
 
 use crate::interpose;
 

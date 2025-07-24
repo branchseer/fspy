@@ -12,5 +12,4 @@ pub const EXECVE_HOST_NAME: &str = "fspy_execve_host";
 pub struct Payload {
     pub preload_lib_path: String,
     pub ipc_fd: RawFd,
-    pub bootstrap: bool,
 }
