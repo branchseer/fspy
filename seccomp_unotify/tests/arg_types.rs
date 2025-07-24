@@ -45,14 +45,14 @@ async fn run_in_pre_exec(
     unsafe {
         cmd.pre_exec(move || {
             f()?;
-            libc::exit(0)
+            Ok(())
         });
     }
     let child_fut = spawn_blocking(move || {
         let _span = span!(Level::TRACE, "spawn test child process");
         cmd.spawn()
     });
-    trace!("waiting for handler to finish amd test child process to exit");
+    trace!("waiting for handler to finish and test child process to exit");
     let (recorders, exit_status) = futures_util::future::try_join(async move {
         let recorders = handle_loop.await?;
         trace!("{} recorders awaited", recorders.len());
