@@ -1,8 +1,8 @@
 use libc::{seccomp_notif, seccomp_notif_resp};
+use nix::{fcntl::FcntlArg, poll::{PollFd, PollFlags, PollTimeout}};
 use tracing::trace;
 use std::{
-    io,
-    os::fd::{AsRawFd, OwnedFd},
+    io, net::TcpStream, os::fd::{AsFd, AsRawFd, OwnedFd}
 };
 
 use super::alloc::{Alloced};
@@ -14,6 +14,11 @@ pub struct NotifyListener {
 impl TryFrom<OwnedFd> for NotifyListener {
     type Error = io::Error;
     fn try_from(fd: OwnedFd) -> Result<Self, Self::Error> {
+        let mut nonblocking = true as libc::c_int;
+        let ret = unsafe { libc::ioctl(fd.as_raw_fd(), libc::FIONBIO, &mut nonblocking) };
+        if ret < 0 {
+            return Err(io::Error::last_os_error());
+        }
         Ok(Self {
             fd
         })
@@ -63,8 +68,16 @@ impl NotifyListener {
         buf: &'a mut Alloced<seccomp_notif>,
     ) -> io::Result<Option<&'a seccomp_notif>> {
         let notif_buf = buf.zeroed();
+        let mut fds = [ PollFd::new(self.fd.as_fd(), PollFlags::POLLIN) ];
 
         loop {
+            trace!("polling notify fd");
+            nix::poll::poll(&mut fds, PollTimeout::NONE)?;
+            trace!("fd polled: {:?}", fds[0].revents());
+
+            if let Some(events) = fds[0].revents() && events.contains(PollFlags::POLLHUP) {
+                return Ok(None);
+            };
             trace!("SECCOMP_IOCTL_NOTIF_RECV");
             let ret = unsafe {
                 libc::ioctl(self.fd.as_raw_fd(), SECCOMP_IOCTL_NOTIF_RECV, &raw mut *notif_buf)
@@ -74,7 +87,7 @@ impl NotifyListener {
                 let err = nix::Error::last();
                 trace!("SECCOMP_IOCTL_NOTIF_RECV error: {:?}", err);
                 match err {
-                    nix::Error::EINTR => continue,
+                    nix::Error::EINTR | nix::Error::EWOULDBLOCK => continue,
                     nix::Error::ENOENT => return Ok(None),
                     other => return Err(other.into()),
                 }

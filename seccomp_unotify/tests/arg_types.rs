@@ -24,7 +24,6 @@ enum Syscall {
 #[derive(Default, Clone, Debug)]
 struct SyscallRecorder(Vec<Syscall>);
 impl SyscallRecorder {
-    #[instrument]
     fn openat(&mut self, (fd, path): (Fd, CStrPtr)) -> io::Result<()> {
         let at_dir = fd.get_path()?;
         let path = path.read_with_buf::<32768, _, _>(|path: &[u8]| {
