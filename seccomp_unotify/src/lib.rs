@@ -59,7 +59,7 @@ pub fn install_handler<H: handler::SeccompNotifyHandler + Send + Default + 'stat
 
         let notify_fd = unsafe { OwnedFd::from_raw_fd(notify_fd) };
 
-        let parallelism = 1; // available_parallelism()?.get();
+        let parallelism = available_parallelism()?.get();
         let mut join_set = JoinSet::<io::Result<H>>::new();
         // Tested with esbuild: the kernel load-balances notifications on at most cpu_num of notify_fd duplicates.
         for _ in 0..parallelism {
