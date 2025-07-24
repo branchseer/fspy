@@ -89,6 +89,7 @@ impl FromSyscallArg for Ignored {
     }
 }
 
+#[derive(Debug)]
 pub struct Fd {
     pid: u32,
     fd: RawFd,

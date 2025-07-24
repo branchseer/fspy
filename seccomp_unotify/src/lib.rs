@@ -16,12 +16,14 @@ use tokio::{
 };
 
 use bindings::alloc::alloc_seccomp_notif;
+use tracing::{instrument, span, trace, Level};
 
 use crate::bindings::{alloc::{alloc_seccomp_notif_resp, Alloced}, NotifyListener};
 
 mod bindings;
 pub mod handler;
 
+#[instrument]
 pub fn install_handler<H: handler::SeccompNotifyHandler + Send + Default + 'static>(
     cmd: &mut Command,
 ) -> io::Result<impl Future<Output = io::Result<Vec<H>>> + Send + use<H>> {
@@ -49,7 +51,12 @@ pub fn install_handler<H: handler::SeccompNotifyHandler + Send + Default + 'stat
         })
     };
     Ok(async move {
+        let _span = span!(Level::TRACE, "supervisor task");
+
         let notify_fd = fd_receiver.recv_fd().await?;
+
+        trace!("notify received");
+
         let notify_fd = unsafe { OwnedFd::from_raw_fd(notify_fd) };
 
         let parallelism = available_parallelism()?.get();
@@ -59,10 +66,12 @@ pub fn install_handler<H: handler::SeccompNotifyHandler + Send + Default + 'stat
             let notify_fd = notify_fd.try_clone()?;
             let mut handler = H::default();
             join_set.spawn(async move {
+                let _span = span!(Level::TRACE, "notify loop");
                 let listener = bindings::NotifyListener::try_from(notify_fd)?;
                 let mut notify_buf = alloc_seccomp_notif();
                 let mut resp_buf = alloc_seccomp_notif_resp();
                 while let Some(notify) = listener.next(&mut notify_buf).await? {
+                    let _span = span!(Level::TRACE, "notify loop tick");
                     // Errors on the supervisor side shouldn't block the syscall.
                     let handle_result = handler.handle_notify(notify);
                     listener.send_continue(notify.id, &mut resp_buf)?;

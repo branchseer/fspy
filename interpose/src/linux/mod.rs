@@ -40,6 +40,7 @@ use crate::interpose;
 
 pub const SYSCALL_MAGIC: u64 = 0x900d575CA11; // 'good syscall'
 
+
 unsafe extern "C" fn open(path_ptr: *const c_char, flags: c_int, mut args: ...) -> c_int {
     let path_cstr = unsafe { CStr::from_ptr(path_ptr) };
     libc_eprintln!("open64 {:?}", path_cstr);

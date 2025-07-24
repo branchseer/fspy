@@ -47,4 +47,4 @@ jobs:
         rustup show
         cargo test --no-run --workspace
     - name: Test
-      run: cargo test --workspace
+      run: RUST_LOG_SPAN_EVENTS=full RUST_LOG=trace cargo test --workspace -- --nocapture

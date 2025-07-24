@@ -7,6 +7,8 @@ use std::ffi::OsString;
 use std::ffi::{CString, OsStr};
 use std::io;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use test_log::test;
+use tracing::{instrument, span, trace, Level};
 
 use seccomp_unotify::{
     handler::arg::{CStrPtr, Fd},
@@ -22,6 +24,7 @@ enum Syscall {
 #[derive(Default, Clone, Debug)]
 struct SyscallRecorder(Vec<Syscall>);
 impl SyscallRecorder {
+    #[instrument]
     fn openat(&mut self, (fd, path): (Fd, CStrPtr)) -> io::Result<()> {
         let at_dir = fd.get_path()?;
         let path = path.read_with_buf::<32768, _, _>(|path: &[u8]| {
@@ -45,9 +48,17 @@ async fn run_in_pre_exec(
             libc::exit(0)
         });
     }
-    let child_fut = spawn_blocking(move || cmd.spawn());
+    let child_fut = spawn_blocking(move || {
+        let _span = span!(Level::TRACE, "spawn test child process");
+        cmd.spawn()
+    });
+
     let recorders = handle_loop.await?;
-    child_fut.await.unwrap()?.wait().await?; // lol
+    trace!("{} recorders awaited", recorders.len());
+
+    let exit_status = child_fut.await.unwrap()?.wait().await?; // lol
+    trace!("test child process exited with status: {:?}", exit_status);
+
     let syscalls = recorders
         .into_iter()
         .map(|recorder| recorder.0.into_iter())
@@ -55,7 +66,7 @@ async fn run_in_pre_exec(
     Ok(syscalls.collect())
 }
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn fd_and_path() -> io::Result<()> {
     let syscalls = run_in_pre_exec(|| {
         set_current_dir("/")?;
