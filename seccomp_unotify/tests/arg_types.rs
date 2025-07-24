@@ -52,12 +52,18 @@ async fn run_in_pre_exec(
         let _span = span!(Level::TRACE, "spawn test child process");
         cmd.spawn()
     });
+    trace!("waiting for handler to finish amd test child process to exit");
+    let (recorders, exit_status) = futures_util::future::try_join(async move {
+        let recorders = handle_loop.await?;
+        trace!("{} recorders awaited", recorders.len());
+        Ok(recorders)
+    }, async move {
+        let exit_status = child_fut.await.unwrap()?.wait().await?;
+        trace!("test child process exited with status: {:?}", exit_status);
+        io::Result::Ok(exit_status)
+    }).await?;
 
-    let recorders = handle_loop.await?;
-    trace!("{} recorders awaited", recorders.len());
-
-    let exit_status = child_fut.await.unwrap()?.wait().await?; // lol
-    trace!("test child process exited with status: {:?}", exit_status);
+    assert!(exit_status.success());
 
     let syscalls = recorders
         .into_iter()

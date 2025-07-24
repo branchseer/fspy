@@ -1,4 +1,5 @@
 use libc::{seccomp_notif, seccomp_notif_resp};
+use tracing::trace;
 use std::{
     io,
     os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd},
@@ -64,8 +65,8 @@ impl NotifyListener {
 
         loop {
             let mut ready_guard = self.async_fd.readable().await?;
-
             let ready = ready_guard.ready();
+            trace!("notify fd readable: {:?}", ready);
             if ready.is_read_closed() || ready.is_write_closed() {
                 return Ok(None);
             }
