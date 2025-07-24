@@ -65,12 +65,14 @@ impl NotifyListener {
         let notif_buf = buf.zeroed();
 
         loop {
+            trace!("SECCOMP_IOCTL_NOTIF_RECV");
             let ret = unsafe {
                 libc::ioctl(self.fd.as_raw_fd(), SECCOMP_IOCTL_NOTIF_RECV, &raw mut *notif_buf)
             };
-
+            trace!("SECCOMP_IOCTL_NOTIF_RECV returns {}", ret);
             if ret < 0 {
                 let err = nix::Error::last();
+                trace!("SECCOMP_IOCTL_NOTIF_RECV error: {:?}", err);
                 match err {
                     nix::Error::EINTR => continue,
                     nix::Error::ENOENT => return Ok(None),
