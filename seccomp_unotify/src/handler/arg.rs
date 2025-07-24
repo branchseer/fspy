@@ -38,7 +38,6 @@ impl CStrPtr {
                 iov_len: chunk.len(),
             };
 
-            // TODO: loop partitial read
             let read_size = unsafe {
                 libc::process_vm_readv(
                     self.pid,
@@ -101,6 +100,7 @@ impl FromSyscallArg for Fd {
 }
 
 impl Fd {
+    // TODO: allocate in arena
     pub fn get_path(&self) -> nix::Result<OsString> {
         nix::fcntl::readlink(
             if self.fd == libc::AT_FDCWD {
