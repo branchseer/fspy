@@ -16,9 +16,12 @@ use tokio::{
 };
 
 use bindings::alloc::alloc_seccomp_notif;
-use tracing::{instrument, span, trace, Level};
+use tracing::{Level, instrument, span, trace};
 
-use crate::bindings::{alloc::{alloc_seccomp_notif_resp, Alloced}, NotifyListener};
+use crate::bindings::{
+    NotifyListener,
+    alloc::{Alloced, alloc_seccomp_notif_resp},
+};
 
 mod bindings;
 pub mod handler;
@@ -60,17 +63,22 @@ pub fn install_handler<H: handler::SeccompNotifyHandler + Send + Default + 'stat
         let notify_fd = unsafe { OwnedFd::from_raw_fd(notify_fd) };
 
         let _span = span!(Level::TRACE, "notify loop");
-        let mut handler = H::default();
-        let listener = bindings::NotifyListener::try_from(notify_fd)?;
-        let mut notify_buf = alloc_seccomp_notif();
-        let mut resp_buf = alloc_seccomp_notif_resp();
-        while let Some(notify) = listener.next(&mut notify_buf).await? {
-            let _span = span!(Level::TRACE, "notify loop tick");
-            // Errors on the supervisor side shouldn't block the syscall.
-            let handle_result = handler.handle_notify(notify);
-            listener.send_continue(notify.id, &mut resp_buf)?;
-            handle_result?
-        }
+        let loop_handle = tokio::spawn(async move {
+            let mut handler = H::default();
+            let listener = bindings::NotifyListener::try_from(notify_fd)?;
+            let mut notify_buf = alloc_seccomp_notif();
+            let mut resp_buf = alloc_seccomp_notif_resp();
+            while let Some(notify) = listener.next(&mut notify_buf).await? {
+                let _span = span!(Level::TRACE, "notify loop tick");
+                // Errors on the supervisor side shouldn't block the syscall.
+                let handle_result = handler.handle_notify(notify);
+                listener.send_continue(notify.id, &mut resp_buf)?;
+                handle_result?;
+            }
+            io::Result::Ok(handler)
+        });
+
+        let handler = loop_handle.await??;
 
         Ok(vec![handler])
     })
