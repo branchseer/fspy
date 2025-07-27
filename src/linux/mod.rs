@@ -24,11 +24,10 @@ use std::{
 };
 use syscall_handler::SyscallHandler;
 
-use allocator_api2::vec::Vec;
 use bincode::error::DecodeError;
 use bumpalo::Bump;
 use passfd::{FdPassingExt as _, tokio::FdPassingExt as _};
-use seccomp_unotify::install_handler;
+
 use tokio::{net::UnixStream, process::Child as TokioChild};
 
 // use crate::FileSystemAccess;
@@ -140,7 +139,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
             Ok(())
         });
     }
-    let unotify_loop = install_handler::<SyscallHandler>(&mut command)?;
+    // let unotify_loop = install_handler::<SyscallHandler>(&mut command)?;
 
     let child = command.spawn()?;
     // drop channel_sender in the parent process,
@@ -148,12 +147,12 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
     drop(command);
 
     let accesses_future = async move {
-        let handlers = unotify_loop.await?;
-        let arenas = handlers
-            .into_iter()
-            .map(|handler| handler.arena)
-            .collect::<Vec<_>>();
-        io::Result::Ok(PathAccessIterable { arenas })
+        // let handlers = unotify_loop.await?;
+        // let arenas = handlers
+        //     .into_iter()
+        //     .map(|handler| handler.arena)
+        //     .collect::<Vec<_>>();
+        io::Result::Ok(PathAccessIterable { arenas: vec![] })
     }
     .boxed();
 

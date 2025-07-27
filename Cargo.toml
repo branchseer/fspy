@@ -30,10 +30,9 @@ slab = "0.4.9"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tokio-seqpacket = "0.8.0"
-seccompiler = { git = "https://github.com/branchseer/seccompiler", branch = "seccomp-action-raw" }
 arrayvec = "0.7.6"
 nix = { version = "0.30.1", features = ["uio"] }
-seccomp_unotify = { path = "seccomp_unotify" }
+seccomp_unotify = { path = "seccomp_unotify", features = ["supervisor"]}
 blink-alloc =  { version = "0.3.1", features = ["sync"]}
 thread_local = "1.1.9"
 tokio = { version = "1.44.2", features = ["bytes"] }
@@ -84,7 +83,6 @@ tar = "0.4.44"
 anyhow = "1.0.98"
 bytemuck = { version = "1.23.0", features = ["extern_crate_alloc"] }
 
-
-# [profile.release]
-# lto = true
-# codegen-units = 1
+[profile.release]
+lto = true
+codegen-units = 1

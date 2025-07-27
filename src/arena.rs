@@ -13,6 +13,7 @@ pub struct PathAccessArena {
     pub bump: Bump,
     #[borrows(bump)]
     #[covariant]
+    // TODO(pref): use linked list to avoid realloc & copy. We don't need random access.
     pub accesses: Vec<PathAccess<'this>, &'this Bump>,
 }
 

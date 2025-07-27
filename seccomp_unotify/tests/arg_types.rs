@@ -1,18 +1,19 @@
 use assertables::assert_contains;
 use nix::fcntl::{AT_FDCWD, OFlag, openat};
 use nix::sys::stat::Mode;
-use seccomp_unotify::install_handler;
+
 use std::env::{current_dir, set_current_dir};
 use std::ffi::OsString;
 use std::ffi::{CString, OsStr};
 use std::io;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use test_log::test;
-use tracing::{instrument, span, trace, Level};
+use tracing::{span, trace, Level};
 
 use seccomp_unotify::{
-    handler::arg::{CStrPtr, Fd},
+    supervisor::{handler::arg::{CStrPtr, Fd}, supervise},
     impl_handler,
+    target::install_target,
 };
 use tokio::{process::Command, task::spawn_blocking};
 
@@ -40,9 +41,12 @@ async fn run_in_pre_exec(
     mut f: impl FnMut() -> io::Result<()> + Send + Sync + 'static,
 ) -> io::Result<Vec<Syscall>> {
     let mut cmd = Command::new("/bin/echo");
-    let handle_loop = install_handler::<SyscallRecorder>(&mut cmd)?;
+    let (payload, handle_loop) = supervise::<SyscallRecorder>()?;
+
+    let mut payload = Some(payload);
     unsafe {
         cmd.pre_exec(move || {
+            install_target(payload.take().unwrap())?;
             f()?;
             Ok(())
         });

@@ -1,15 +1,18 @@
 use libc::{seccomp_notif, seccomp_notif_resp};
-use tracing::trace;
 use std::{
-    io,
-    os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd},
+    io, ops::Deref, os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd}
 };
+use tracing::trace;
 
-use super::alloc::{Alloced};
+use crate::bindings::{
+    alloc::{Alloced, alloc_seccomp_notif},
+    notif_recv,
+};
 use tokio::io::unix::AsyncFd;
 
 pub struct NotifyListener {
     async_fd: AsyncFd<OwnedFd>,
+    notif_buf: Alloced<libc::seccomp_notif>,
 }
 
 impl TryFrom<OwnedFd> for NotifyListener {
@@ -17,6 +20,7 @@ impl TryFrom<OwnedFd> for NotifyListener {
     fn try_from(value: OwnedFd) -> Result<Self, Self::Error> {
         Ok(Self {
             async_fd: AsyncFd::new(value)?,
+            notif_buf: alloc_seccomp_notif(),
         })
     }
 }
@@ -57,12 +61,7 @@ impl NotifyListener {
         };
         Ok(())
     }
-    pub async fn next<'a>(
-        &self,
-        buf: &'a mut Alloced<seccomp_notif>,
-    ) -> io::Result<Option<&'a seccomp_notif>> {
-        let notif_buf = buf.zeroed();
-
+    pub async fn next(&mut self) -> io::Result<Option<&seccomp_notif>> {
         loop {
             let mut ready_guard = self.async_fd.readable().await?;
             let ready = ready_guard.ready();
@@ -77,19 +76,11 @@ impl NotifyListener {
             // TODO: check why this call solves the issue that `is_read_closed || is_write_closed` is never true.
             ready_guard.clear_ready();
 
-            let raw_notify_fd = ready_guard.get_inner().as_raw_fd();
-            let ret = unsafe {
-                libc::ioctl(raw_notify_fd, SECCOMP_IOCTL_NOTIF_RECV, &raw mut *notif_buf)
-            };
-
-            if ret < 0 {
-                let err = nix::Error::last();
-                match err {
-                    nix::Error::EINTR | nix::Error::EWOULDBLOCK | nix::Error::ENOENT => continue,
-                    other => return Err(other.into()),
-                }
+            match notif_recv(ready_guard.get_inner().as_fd(), &mut self.notif_buf) {
+                Ok(()) => return Ok(Some(self.notif_buf.deref())),
+                Err(nix::Error::EINTR | nix::Error::EWOULDBLOCK | nix::Error::ENOENT) => continue,
+                Err(other_error) => return Err(other_error.into()),
             }
-            return Ok(Some(notif_buf));
         }
     }
 }

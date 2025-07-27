@@ -49,4 +49,4 @@ jobs:
     - name: Test
       run: |
         uname -a
-        RUST_LOG_SPAN_EVENTS=full RUST_LOG=trace cargo test --workspace -- --nocapture
+        RUST_LOG_SPAN_EVENTS=full RUST_LOG=trace cargo test --workspace --all-features -- --nocapture

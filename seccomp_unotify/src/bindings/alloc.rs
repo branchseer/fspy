@@ -1,9 +1,11 @@
-use libc::SECCOMP_GET_NOTIF_SIZES;
 use std::{
-    alloc::{self, GlobalAlloc, Layout}, any::type_name, cmp::max, mem::zeroed, ptr::NonNull, sync::LazyLock
+    alloc::{self, Layout},
+    cmp::max,
+    ops::Deref,
+    ptr::NonNull,
+    sync::LazyLock,
 };
-
-use super::seccomp;
+use super::get_notif_sizes;
 
 #[derive(Debug)]
 struct BufSizes {
@@ -14,8 +16,7 @@ struct BufSizes {
 static BUF_SIZES: LazyLock<BufSizes> = LazyLock::new(|| {
     const MAX_ALIGN: usize = align_of::<libc::max_align_t>();
 
-    let mut sizes = unsafe { zeroed::<libc::seccomp_notif_sizes>() };
-    unsafe { seccomp(SECCOMP_GET_NOTIF_SIZES, 0, (&raw mut sizes).cast()) }.unwrap();
+    let sizes = get_notif_sizes().unwrap();
     BufSizes {
         req_layout: Layout::from_size_align(
             max(sizes.seccomp_notif.into(), size_of::<libc::seccomp_notif>()),
@@ -39,8 +40,8 @@ pub struct Alloced<T> {
 }
 
 impl<T> Alloced<T> {
-    pub unsafe fn alloc(layout: Layout) -> Self {
-        let ptr = unsafe { alloc::alloc(layout) };
+    pub(crate) unsafe fn alloc(layout: Layout) -> Self {
+        let ptr = unsafe { alloc::alloc_zeroed(layout) };
 
         let ptr = NonNull::new(ptr).unwrap();
         Self {
@@ -48,9 +49,17 @@ impl<T> Alloced<T> {
             layout,
         }
     }
-    pub fn zeroed(&mut self) -> &mut T {
+    pub(crate) fn zeroed(&mut self) -> &mut T {
         unsafe { self.ptr.cast::<u8>().write_bytes(0, self.layout.size()) };
         unsafe { self.ptr.as_mut() }
+    }
+}
+
+impl<T> Deref for Alloced<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.ptr.as_ref() }
     }
 }
 

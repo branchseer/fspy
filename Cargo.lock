@@ -498,7 +498,6 @@ dependencies = [
  "rand 0.9.1",
  "ref-cast",
  "seccomp_unotify",
- "seccompiler",
  "slab",
  "syscalls",
  "tar",
@@ -1399,6 +1398,7 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "assertables",
+ "bincode",
  "bytes",
  "futures-util",
  "libc",

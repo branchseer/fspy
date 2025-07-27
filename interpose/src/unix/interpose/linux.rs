@@ -16,7 +16,7 @@ macro_rules! interpose {
         const _: () = {
             #[unsafe(naked)]
             #[unsafe(export_name = ::core::concat!(::core::stringify!($name), 64))]
-            unsafe extern "C" fn interpose_fn() {
+            pub unsafe extern "C" fn interpose_fn() {
                 #[cfg(target_arch = "aarch64")]
                 ::core::arch::naked_asm!("b {}", sym $name);
                 #[cfg(target_arch = "x86_64")]
@@ -56,7 +56,7 @@ macro_rules! interpose_inner {
         const _: () = {
             #[unsafe(naked)]
             #[unsafe(export_name = ::core::stringify!($name))]
-            unsafe extern "C" fn interpose_fn() {
+            pub unsafe extern "C" fn interpose_fn() {
                 #[cfg(target_arch = "aarch64")]
                 ::core::arch::naked_asm!("b {}", sym $name);
                 #[cfg(target_arch = "x86_64")]

@@ -2,7 +2,7 @@ use std::{cell::RefCell, ffi::OsStr, io, ops::{Deref, DerefMut}, os::unix::ffi::
 
 use allocator_api2::vec::Vec;
 use fspy_shared::ipc::{AccessMode, NativeStr, PathAccess};
-use seccomp_unotify::{handler::arg::{CStrPtr, Fd, Ignored}, impl_handler};
+use seccomp_unotify::{supervisor::handler::arg::{CStrPtr, Fd, Ignored}, impl_handler};
 use thread_local::ThreadLocal;
 use crate::arena::PathAccessArena;
 
@@ -39,7 +39,6 @@ impl SyscallHandler {
             acceeses.push(path_access);
             io::Result::Ok(())
         })?;
-        // dbg!(fd.get_path())?;
         Ok(())
     }
 }
