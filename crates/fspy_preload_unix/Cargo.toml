@@ -1,10 +1,7 @@
 [package]
-name = "fspy_interpose"
+name = "fspy_preload_unix"
 edition = "2024"
 publish = false
-
-[workspace]
-members = ["shared"]
 
 [lib]
 crate-type = ["cdylib"]
@@ -32,9 +29,6 @@ const_format = "0.2.34"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.172"
-lexical-core = { version = "1.0.5", default-features = false, features = [
-    "parse-integers",
-] }
 bstr = { version = "1.12.0", default-features = false }
 socket2 = "0.5.10"
 ctor = "0.4.2"
@@ -50,33 +44,6 @@ allocator-api2 = { version = "0.2.21", default-features = false, features = [
     "alloc",
 ] }
 
-[target.'cfg(target_os = "windows")'.dependencies]
-# windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_Security", "Win32_System_LibraryLoader"] }
-winsafe = { version = "0.0.24", features = ["kernel"] }
-ms-detours = "4.0.5"
-winapi = { version = "0.3.9", features = [
-    "winerror",
-    "winbase",
-    "namedpipeapi",
-    "memoryapi",
-    "std",
-] }
-smallvec = { version = "2.0.0-alpha.11", features = ["std"] }
-widestring = "1.2.0"
-constcat = "0.6.1"
-backtrace = "0.3.75"
-
-[target.'cfg(target_os = "windows")'.dev-dependencies]
-tempfile = "3.20.0"
-
-[profile.dev]
-panic = "abort"
-
-[profile.release]
-panic = "abort"
-strip = "symbols"
-lto = true
-codegen-units = 1
 
 [dependencies]
 arrayvec = "0.7.6"

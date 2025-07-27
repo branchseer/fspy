@@ -57,7 +57,7 @@ use which::which;
 
 use crate::{Command, TrackedChild, arena::PathAccessArena};
 
-const EXECVE_HOST_BINARY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/fspy_interpose"));
+const EXECVE_HOST_BINARY: &[u8] = include_bytes!(env!("CARGO_CDYLIB_FILE_FSPY_PRELOAD_UNIX"));
 
 #[derive(Debug, Clone)]
 pub struct SpyInner {

@@ -4,93 +4,10 @@ use std::{
     fs,
     io::Read,
     path::Path,
-    process::Command,
 };
 
 use anyhow::{Context, bail};
 use xxhash_rust::xxh3::xxh3_128;
-
-fn command_with_clean_env(program: impl AsRef<OsStr>) -> Command {
-    let mut command = Command::new(program);
-    let mut envs = env::vars_os().collect::<Vec<(OsString, OsString)>>();
-    envs.retain(|(name, _)| {
-        if let Some(name_str) = name.to_str() {
-            !(name_str.starts_with("CARGO_") || name_str.starts_with("cargo_"))
-        } else {
-            true
-        }
-    });
-    command.env_clear().envs(envs);
-    command
-}
-
-fn build_interpose() {
-    let interpose_path = "interpose";
-    println!("cargo:rerun-if-changed={}", interpose_path);
-
-    let cwd = current_dir().unwrap();
-    let interpose_path = cwd.join(interpose_path);
-
-    let out_dir = cwd.join(Path::new(&std::env::var_os("OUT_DIR").unwrap()));
-    let interpose_target_dir = out_dir.join("fspy_interpose_target");
-
-    let mut build_cmd = command_with_clean_env("cargo");
-    build_cmd
-        .current_dir(&interpose_path)
-        .env("CARGO_TARGET_DIR", &interpose_target_dir)
-        .arg("build");
-
-    // config target
-    // build_cmd.args([
-    //     "-Zbuild-std=std,panic_abort",
-    //     "--target",
-    //     "aarch64-unknown-linux-musl.json",
-    // ])
-
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-    let (interpose_target, output_name) = match env::var("CARGO_CFG_TARGET_OS").unwrap().as_str() {
-        "linux" => (env::var("TARGET").unwrap(), "libfspy_interpose.so"),
-        "macos" => (env::var("TARGET").unwrap(), "libfspy_interpose.dylib"),
-        "windows" => (
-            // TODO: try gnullvm for cross-compiling
-            format!("{}-pc-windows-msvc", &target_arch),
-            "fspy_interpose.dll",
-        ),
-        other => panic!("Unsuppported target os: {}", other),
-    };
-
-    build_cmd.args(["--target", &interpose_target]);
-
-    let is_release = env::var("PROFILE").unwrap() == "release";
-    if is_release {
-        build_cmd.arg("--release");
-    };
-    let exit_status = dbg!(build_cmd).status().unwrap();
-    assert_eq!(exit_status.code(), Some(0));
-
-    let interpose_path = out_dir.join("fspy_interpose");
-    let interpose_hash_path = out_dir.join("fspy_interpose.hash");
-
-    let interpose_data_path = interpose_target_dir
-        .join(&interpose_target)
-        .join(if is_release { "release" } else { "debug" })
-        .join(output_name);
-    let interpose_data = fs::read(dbg!(interpose_data_path)).unwrap();
-    let interpose_hash = xxh3_128(&interpose_data);
-
-    fs::write(&interpose_path, interpose_data).unwrap();
-
-    fs::write(&interpose_hash_path, format!("{:x}", interpose_hash)).unwrap();
-
-    // fs::copy(
-    //     interpose_target_dir
-    //         .join(&interpose_target)
-    //         .join(if is_release { "release" } else { "debug" })
-    //         .join(output_name),
-    //     interpose_path,
-    // )
-    // .unwrap();
-}
 
 fn download(url: &str) -> anyhow::Result<impl Read + use<>> {
     let resp = attohttpc::get(url).send().unwrap();
@@ -203,6 +120,5 @@ fn fetch_macos_binaries() -> anyhow::Result<()> {
 fn main() -> anyhow::Result<()> {
     println!("cargo:rerun-if-changed=build.rs");
     fetch_macos_binaries().context("Failed to fetch macOS binaries")?;
-    build_interpose();
     Ok(())
 }

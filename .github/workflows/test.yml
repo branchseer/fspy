@@ -37,13 +37,13 @@ jobs:
           pkg-config
           libssl-dev
       if: runner.os == 'Windows'
-    - name: Install rust in WSL
+    - name: Install rustup in WSL
       run: |
         curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain none
         echo "export CARGO_TARGET_DIR=$HOME/target" >> ~/.bashrc # Set a consistent target directory on the native WSL filesystem
-        . "$HOME/.cargo/env"
-        rustup show
       if: runner.os == 'Windows'
+    - name: Install Rust Toolchain
+      run: rustup show
     - name: Build
       run: cargo test --no-run --workspace --all-features
     - name: Test

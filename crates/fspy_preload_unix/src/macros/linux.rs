@@ -1,4 +1,3 @@
-#[macro_export]
 macro_rules! interpose {
     ($name: ident (64): $fn_sig: ty) => {
         $crate::interpose_inner! {
@@ -27,7 +26,7 @@ macro_rules! interpose {
     };
     ($name: ident: $fn_sig: ty) => {
 
-        $crate::interpose_inner! {
+        $crate::macros::interpose_inner! {
             $name: $fn_sig;
 
             #[cfg(test)]
@@ -42,12 +41,8 @@ macro_rules! interpose {
     }
 }
 
-#[doc(hidden)]
-pub fn symbol_exists() {}
+pub(crate) use interpose;
 
-
-#[doc(hidden)]
-#[macro_export]
 macro_rules! interpose_inner {
     ($name: ident: $fn_sig: ty; $test_fn: item ) => {
         const _: $fn_sig = $name;
@@ -79,3 +74,5 @@ macro_rules! interpose_inner {
         }
     };
 }
+
+pub(crate) use interpose_inner;

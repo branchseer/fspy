@@ -55,20 +55,20 @@ unsafe extern "C" fn open(path_ptr: *const c_char, flags: c_int, mut args: ...) 
 
 interpose!(open(64): unsafe extern "C" fn(*const c_char, c_int, args: ...) -> c_int);
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn fopen(path_ptr: *const c_char, mode: *const c_char) -> c_int {
-    let path_cstr = unsafe { CStr::from_ptr(path_ptr) };
-    libc_eprintln!("open {:?}", path_cstr);
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn fopen(path_ptr: *const c_char, mode: *const c_char) -> c_int {
+//     let path_cstr = unsafe { CStr::from_ptr(path_ptr) };
+//     libc_eprintln!("open {:?}", path_cstr);
 
-    let original_fopen: *mut c_void = unsafe { libc::dlsym(libc::RTLD_NEXT, c"fopen".as_ptr()) };
-    assert!(!original_fopen.is_null());
+//     let original_fopen: *mut c_void = unsafe { libc::dlsym(libc::RTLD_NEXT, c"fopen".as_ptr()) };
+//     assert!(!original_fopen.is_null());
 
-    let original_fopen: unsafe extern "C" fn(
-        path_ptr: *const c_char,
-        mode: *const c_char,
-    ) -> c_int = unsafe { transmute(original_fopen) };
-    unsafe { original_fopen(path_ptr, mode) }
-}
+//     let original_fopen: unsafe extern "C" fn(
+//         path_ptr: *const c_char,
+//         mode: *const c_char,
+//     ) -> c_int = unsafe { transmute(original_fopen) };
+//     unsafe { original_fopen(path_ptr, mode) }
+// }
 
 unsafe extern "C" fn openat(
     dirfd: c_int,
@@ -89,25 +89,25 @@ unsafe extern "C" fn openat(
 
 interpose!(openat(64): unsafe extern "C" fn(c_int, *const c_char, c_int, ...) -> c_int);
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn scandir64(
-    dirp: *const c_char,
-    namelist: *const c_void,
-    filter: *const c_void,
-    compar: *const c_void,
-) -> c_int {
-    let path_cstr = unsafe { CStr::from_ptr(dirp) };
-    libc_eprintln!("scandir {:?}", path_cstr);
+// #[unsafe(no_mangle)]
+// pub unsafe extern "C" fn scandir64(
+//     dirp: *const c_char,
+//     namelist: *const c_void,
+//     filter: *const c_void,
+//     compar: *const c_void,
+// ) -> c_int {
+//     let path_cstr = unsafe { CStr::from_ptr(dirp) };
+//     libc_eprintln!("scandir {:?}", path_cstr);
 
-    let original_scandir = unsafe { libc::dlsym(libc::RTLD_NEXT, c"scandir64".as_ptr()) };
-    assert!(!original_scandir.is_null());
+//     let original_scandir = unsafe { libc::dlsym(libc::RTLD_NEXT, c"scandir64".as_ptr()) };
+//     assert!(!original_scandir.is_null());
 
-    let original_scandir: unsafe extern "C" fn(
-        dirp: *const c_char,
-        namelist: *const c_void,
-        filter: *const c_void,
-        compar: *const c_void,
-    ) -> c_int = unsafe { transmute(original_scandir) };
+//     let original_scandir: unsafe extern "C" fn(
+//         dirp: *const c_char,
+//         namelist: *const c_void,
+//         filter: *const c_void,
+//         compar: *const c_void,
+//     ) -> c_int = unsafe { transmute(original_scandir) };
 
-    unsafe { original_scandir(dirp, namelist, filter, compar) }
-}
+//     unsafe { original_scandir(dirp, namelist, filter, compar) }
+// }
