@@ -41,12 +41,10 @@ jobs:
       run: |
         curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain none
         echo "export CARGO_TARGET_DIR=$HOME/target" >> ~/.bashrc # Set a consistent target directory on the native WSL filesystem
+        . "$HOME/.cargo/env"
+        rustup show
       if: runner.os == 'Windows'
     - name: Build
-      run: |
-        rustup show
-        cargo test --no-run --workspace
+      run: cargo test --no-run --workspace --all-features
     - name: Test
-      run: |
-        uname -a
-        RUST_LOG_SPAN_EVENTS=full RUST_LOG=trace cargo test --workspace --all-features -- --nocapture
+      run: RUST_LOG_SPAN_EVENTS=full RUST_LOG=trace cargo test --workspace --all-features
