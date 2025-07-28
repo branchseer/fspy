@@ -1,6 +1,6 @@
-macro_rules! interpose {
+macro_rules! intercept {
     ($name: ident (64): $fn_sig: ty) => {
-        $crate::interpose_inner! {
+        $crate::macros::intercept_inner! {
             $name: $fn_sig;
 
             #[cfg(test)]
@@ -26,7 +26,7 @@ macro_rules! interpose {
     };
     ($name: ident: $fn_sig: ty) => {
 
-        $crate::macros::interpose_inner! {
+        $crate::macros::intercept_inner! {
             $name: $fn_sig;
 
             #[cfg(test)]
@@ -41,12 +41,12 @@ macro_rules! interpose {
     }
 }
 
-pub(crate) use interpose;
+pub(crate) use intercept;
 
-macro_rules! interpose_inner {
+macro_rules! intercept_inner {
     ($name: ident: $fn_sig: ty; $test_fn: item ) => {
         const _: $fn_sig = $name;
-        const _: $fn_sig = $crate::unix::libc::$name;
+        const _: $fn_sig = $crate::libc::$name;
 
         #[cfg(not(test))] // Don't interpose on the test binary
         const _: () = {
@@ -61,7 +61,7 @@ macro_rules! interpose_inner {
         };
         mod $name {
             use super::*;
-            pub fn original() -> $fn_sig {
+            pub unsafe fn original() -> $fn_sig {
                 static LAZY: std::sync::LazyLock<$fn_sig> = std::sync::LazyLock::new(|| unsafe {
                     ::core::mem::transmute_copy(&libc::dlsym(
                         libc::RTLD_NEXT,
@@ -75,4 +75,4 @@ macro_rules! interpose_inner {
     };
 }
 
-pub(crate) use interpose_inner;
+pub(crate) use intercept_inner;

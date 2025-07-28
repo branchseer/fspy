@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 arrayvec = "0.7.6"
 syscalls = { version = "0.6.18", default-features = false }
 nix = { version = "0.30.1", features = ["signal", "fs", "socket"] }
-seccompiler = "0.5.0"
+seccomp_unotify = { workspace = true, features = ["target"] }
 libc-print = "0.1.23"
 refcell-lock-api = "0.1.0"
 talc = { version = "4.4.3", default-features = false, features = [
@@ -54,4 +54,3 @@ path-dedot = "3.1.1"
 ref-cast = "1.0.24"
 which = "7.0.3"
 fspy_shared = { workspace = true }
-ntapi = "0.4.1"

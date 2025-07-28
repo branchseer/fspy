@@ -9,6 +9,7 @@ use std::{
 #[cfg(unix)]
 use bincode::Decode;
 use bincode::{BorrowDecode, Encode};
+use bstr::BStr;
 
 /// Similar to OsStr, but requires no copy for encode/decode
 #[derive(Encode, BorrowDecode, Clone, Copy)]
@@ -69,6 +70,12 @@ impl<'a> NativeStr<'a> {
         return Cow::Owned(self.to_os_string());
         #[cfg(unix)]
         return Cow::Borrowed(self.as_os_str());
+    }
+}
+
+impl <'a> From<&'a BStr> for NativeStr<'a> {
+    fn from(value: &'a BStr) -> Self {
+        Self::from_bytes(&value)
     }
 }
 
