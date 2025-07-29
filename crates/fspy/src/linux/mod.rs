@@ -4,6 +4,11 @@
 
 mod syscall_handler;
 
+use fspy_shared_unix::{
+    payload::{Payload, encode_payload},
+    spawn::handle_spawn,
+};
+use seccomp_unotify::supervisor::supervise;
 use std::{
     ffi::{CString, OsStr, OsString},
     fs::File,
@@ -32,9 +37,7 @@ use tokio::{net::UnixStream, process::Child as TokioChild};
 
 // use crate::FileSystemAccess;
 
-use fspy_shared::{
-    ipc::{BINCODE_CONFIG, PathAccess},
-};
+use fspy_shared::ipc::{BINCODE_CONFIG, PathAccess};
 use futures_util::{
     FutureExt, Stream, TryStream, TryStreamExt, future::BoxFuture, stream::poll_fn,
 };
@@ -96,7 +99,7 @@ impl PathAccessIterable {
 }
 
 pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild> {
-    let preload_lib_path = format!(
+    let preload_path = format!(
         "/proc/self/fd/{}",
         command.spy_inner.preload_lib_memfd.as_raw_fd()
     );
@@ -107,47 +110,56 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
     sender.set_nonblocking(false)?;
     let sender = OwnedFd::from(sender);
 
-    // let payload = Payload {
-    //     preload_lib_path,
-    //     ipc_fd: sender.as_raw_fd(),
-    // };
-    
-    // let payload_with_str = PayloadWithEncodedString {
-    //     payload_string: encode_env(&payload),
-    //     payload,
-    // };
-    // command.resolve_program()?;
-    // let bump = Bump::new();
-    // command.with_info(&bump, |cmd_info| {
-    //     inject(&bump, cmd_info, &payload_with_str)?;
-    //     io::Result::Ok(())
-    // })?;
+    let supervisor = supervise::<SyscallHandler>()?;
 
-    let execve_host_memfd = Arc::clone(&command.spy_inner.preload_lib_memfd);
-    let mut command = command.into_tokio_command();
+    let payload = Payload {
+        ipc_fd: sender.as_raw_fd(),
+
+        #[cfg(target_os = "linux")]
+        preload_path: format!(
+            "/proc/self/fd/{}",
+            command.spy_inner.preload_lib_memfd.as_raw_fd()
+        ),
+
+        #[cfg(target_os = "linux")]
+        seccomp_payload: supervisor.payload,
+    };
+
+    let encoded_payload = encode_payload(payload);
+
+    let preload_lib_memfd = Arc::clone(&command.spy_inner.preload_lib_memfd);
+    let mut supervisor_pre_exec = supervisor.pre_exec;
+
+    let mut command_info = command.info();
+    let mut pre_spawn = handle_spawn(&mut command_info, true, &encoded_payload)?;
+    command.set_info(command_info);
+
+    let mut tokio_command = command.into_tokio_command();
 
     unsafe {
-        command.pre_exec(move || {
-            // don't close ipc fd on execve
-            unset_fd_flag(execve_host_memfd.as_fd(), FdFlag::FD_CLOEXEC)?;
-            unset_fd_flag(sender.as_fd(), FdFlag::FD_CLOEXEC)?;
+        tokio_command.pre_exec(move || {
+            unset_fd_flag(preload_lib_memfd.as_fd(), FdFlag::FD_CLOEXEC)?;
+            supervisor_pre_exec.run()?;
+            if let Some(pre_spawn) = &mut pre_spawn {
+                pre_spawn.run()?;
+            }
             Ok(())
         });
     }
     // let unotify_loop = install_handler::<SyscallHandler>(&mut command)?;
 
-    let child = command.spawn()?;
+    let child = tokio_command.spawn()?;
     // drop channel_sender in the parent process,
     // so that channel_receiver reaches eof as soon as the last descendant process exits.
-    drop(command);
+    drop(tokio_command);
 
     let accesses_future = async move {
-        // let handlers = unotify_loop.await?;
-        // let arenas = handlers
-        //     .into_iter()
-        //     .map(|handler| handler.arena)
-        //     .collect::<Vec<_>>();
-        io::Result::Ok(PathAccessIterable { arenas: vec![] })
+        let handlers = supervisor.handling_loop.await?;
+        let arenas = handlers
+            .into_iter()
+            .map(|handler| handler.arena)
+            .collect::<Vec<_>>();
+        io::Result::Ok(PathAccessIterable { arenas })
     }
     .boxed();
 
@@ -159,8 +171,8 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
 
 impl SpyInner {
     pub fn init() -> io::Result<Self> {
-        let execve_host_memfd = memfd_create("fspy_preload", MFdFlags::MFD_CLOEXEC)?;
-        let mut execve_host_memfile = File::from(execve_host_memfd);
+        let preload_lib_memfd = memfd_create("fspy_preload", MFdFlags::MFD_CLOEXEC)?;
+        let mut execve_host_memfile = File::from(preload_lib_memfd);
         execve_host_memfile.write_all(EXECVE_HOST_BINARY)?;
         Ok(Self {
             preload_lib_memfd: Arc::new(OwnedFd::from(execve_host_memfile)),

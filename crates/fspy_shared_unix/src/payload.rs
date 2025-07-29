@@ -7,13 +7,14 @@ use std::{
         unix::ffi::OsStringExt,
     },
 };
-use seccomp_unotify::payload::SeccompPayload;
 
 #[derive(Debug, Encode, Decode)]
 pub struct Payload {
     pub ipc_fd: RawFd,
     pub preload_path: String,
-    pub seccomp_payload: SeccompPayload,
+
+    #[cfg(target_os = "linux")]
+    pub seccomp_payload: seccomp_unotify::payload::SeccompPayload,
 }
 
 pub(crate) const PAYLOAD_ENV_NAME: &str = "FSPY_PAYLOAD";

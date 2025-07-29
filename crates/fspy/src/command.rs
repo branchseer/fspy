@@ -1,5 +1,6 @@
 use crate::{
-    os_impl::{self, spawn_impl}, TrackedChild
+    TrackedChild,
+    os_impl::{self, spawn_impl},
 };
 use std::{
     collections::HashMap,
@@ -9,7 +10,9 @@ use std::{
     process::Stdio,
 };
 
-use tokio::process::{Child as TokioChild, Command as TokioCommand};
+#[cfg(unix)]
+use fspy_shared_unix::cmdinfo::CommandInfo;
+use tokio::process::Command as TokioCommand;
 
 #[derive(Debug)]
 pub struct Command {
@@ -28,6 +31,59 @@ pub struct Command {
 }
 
 impl Command {
+    #[cfg(unix)]
+    pub fn info(&self) -> CommandInfo {
+        use bstr::{BString, ByteSlice as _};
+        use std::{
+            iter::once,
+            os::unix::ffi::{OsStrExt, OsStringExt},
+        };
+        let arg0 = BString::from(
+            self.arg0
+                .clone()
+                .unwrap_or_else(|| self.program.clone())
+                .into_vec(),
+        );
+        CommandInfo {
+            program: self.program.as_bytes().into(),
+            args: once(arg0)
+                .chain(
+                    self.args
+                        .iter()
+                        .map(|arg| arg.as_bytes().as_bstr().to_owned()),
+                )
+                .collect(),
+            envs: self
+                .envs
+                .iter()
+                .map(|(name, value)| (name.as_bytes().into(), Some(value.as_bytes().into())))
+                .collect(),
+        }
+    }
+
+    #[cfg(unix)]
+    pub fn set_info(&mut self, mut info: CommandInfo) {
+        use std::os::unix::ffi::OsStringExt;
+
+        self.program = OsString::from_vec(info.program.into());
+        self.arg0 = Some(OsString::from_vec(info.args.remove(0).into()));
+        self.args = info
+            .args
+            .into_iter()
+            .map(|arg| OsString::from_vec(arg.into()))
+            .collect();
+        self.envs = info
+            .envs
+            .into_iter()
+            .map(|(name, value)| {
+                (
+                    OsString::from_vec(name.into()),
+                    OsString::from_vec(value.unwrap_or_default().into()),
+                )
+            })
+            .collect()
+    }
+
     pub fn env_remove<K: AsRef<OsStr>>(&mut self, key: K) -> &mut Command {
         self.envs.remove(key.as_ref());
         self

@@ -24,5 +24,5 @@ impl From<CodableSockFilter> for libc::sock_filter {
     }
 }
 
-#[derive(Encode, Decode, Debug)]
+#[derive(Encode, Decode, Debug, Clone)]
 pub struct Filter(pub(crate) Vec<CodableSockFilter>);

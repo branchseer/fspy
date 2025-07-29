@@ -21,7 +21,7 @@ tempfile = "3.19.1"
 tokio = { version = "1.44.2", features = ["net", "process", "io-util", "sync"] }
 bumpalo = { version = "3.17.0", features = ["allocator-api2"] }
 ouroboros = "0.18.5"
-
+bstr = { version = "1.12.0", default-features = false }
 which = "7.0.3"
 fspy_shared = { workspace = true }
 slab = "0.4.9"
@@ -36,6 +36,7 @@ thread_local = "1.1.9"
 tokio = { version = "1.44.2", features = ["bytes"] }
 
 [target.'cfg(unix)'.dependencies]
+fspy_shared_unix = { workspace = true }
 fspy_preload_unix = { workspace = true }
 allocator-api2 = { version = "0.2.21", default-features = false, features = [
     "alloc",
