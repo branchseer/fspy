@@ -6,10 +6,7 @@ macro_rules! intercept {
             #[cfg(test)]
             #[test]
             fn symbol_64_exists() {
-               ::core::assert!(!unsafe { ::libc::dlsym(
-                    ::libc::RTLD_NEXT,
-                    ::core::concat!(::core::stringify!($name), "64\0").as_ptr(),
-                ) }.is_null())
+                ::core::assert!($crate::macros::symbol_exists(::core::stringify!($name)));
             }
         }
         #[cfg(not(test))] // Don't interpose on the test binary
@@ -32,16 +29,22 @@ macro_rules! intercept {
             #[cfg(test)]
             #[test]
             fn symbol_64_does_not_exist() {
-               ::core::assert!(unsafe { ::libc::dlsym(
-                    ::libc::RTLD_NEXT,
-                    ::core::concat!(::core::stringify!($name), "64\0").as_ptr(),
-                ) }.is_null())
+               ::core::assert_eq!($crate::macros::(::core::stringify($name)), false);
             }
         }
     }
 }
 
+use std::ffi::CString;
+
 pub(crate) use intercept;
+
+#[cfg(test)]
+#[doc(hidden)]
+pub(crate) fn symbol_exists(name: &str) -> bool {
+    let name = CString::new(name).unwrap();
+    !unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr().cast()) }.is_null()
+}
 
 macro_rules! intercept_inner {
     ($name: ident: $fn_sig: ty; $test_fn: item ) => {
