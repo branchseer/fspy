@@ -1,32 +1,52 @@
-use std::{fs::File, io, ops::Deref, os::unix::ffi::OsStrExt as _, path::Path};
+use std::{
+    ffi::{CStr, OsStr},
+    os::unix::ffi::OsStrExt as _,
+    path::Path,
+};
 
-use goblin::elf::Elf;
+use elf::{ElfBytes, abi::PT_INTERP, endian::AnyEndian};
 
-pub fn is_dynamically_linked_to_libc(executable_path: impl AsRef<Path>) -> anyhow::Result<bool> {
-    let file = File::open(executable_path)?;
-    let mmap = unsafe { memmap2::Mmap::map(&file) }?;
-    let elf = Elf::parse(mmap.deref())?;
-    let Some(interpreter) = elf.interpreter else {
+pub fn is_dynamically_linked_to_libc(executable: impl AsRef<[u8]>) -> nix::Result<bool> {
+    // let fd = open_executable(path)?;
+    // let mmap = unsafe { memmap2::Mmap::map(&fd) }
+    //     .map_err(|err| nix::Error::try_from(err).unwrap_or(nix::Error::UnknownErrno))?;
+    let elf = ElfBytes::<'_, AnyEndian>::minimal_parse(executable.as_ref()).map_err(|_| nix::Error::ENOEXEC)?;
+    let Some(headers) = elf.segments() else {
         return Ok(false);
     };
-    let Some(interpreter_filename) = Path::new(interpreter).file_name() else {
+
+    let Some(interp_header) = headers
+        .into_iter()
+        .find(|header| header.p_type == PT_INTERP)
+    else {
         return Ok(false);
     };
-    let interpreter_filename = interpreter_filename.as_bytes();
-    Ok(interpreter_filename.starts_with(b"ld-") || interpreter_filename.starts_with(b"ld."))
+    let Ok(interp) = elf.segment_data(&interp_header) else {
+        return Err(nix::Error::ENOEXEC);
+    };
+
+    let interp = CStr::from_bytes_until_nul(interp)
+        .map(CStr::to_bytes)
+        .unwrap_or(interp);
+
+    let Some(interp_filename) = Path::new(OsStr::from_bytes(interp)).file_name() else {
+        return Ok(false);
+    };
+    let interp_filename = interp_filename.as_bytes();
+    Ok(interp_filename.starts_with(b"ld-") || interp_filename.starts_with(b"ld."))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs::read_dir;
+    use std::fs::{read_dir, read};
 
     use super::*;
     #[test]
-    fn is_dynamically_linked_to_libc_true() {
-        assert_eq!(is_dynamically_linked_to_libc("/bin/cat").unwrap(), true);
+    fn dynamic_executable() {
+        assert_eq!(is_dynamically_linked_to_libc(read("/bin/cat").unwrap()).unwrap(), true);
     }
     #[test]
-    fn is_dynamically_linked_to_libc_false() {
+    fn static_executable() {
         let ld_so_filename = read_dir("/lib")
             .unwrap()
             .find_map(|entry| {
@@ -40,6 +60,6 @@ mod tests {
             })
             .unwrap();
         let ld_so_path = format!("/lib/{}", ld_so_filename);
-        assert_eq!(is_dynamically_linked_to_libc(ld_so_path).unwrap(), false);
+        assert_eq!(is_dynamically_linked_to_libc(read(ld_so_path).unwrap()).unwrap(), false);
     }
 }
