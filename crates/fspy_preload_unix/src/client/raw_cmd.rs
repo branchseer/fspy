@@ -1,6 +1,6 @@
 use std::{
-    ffi::{CStr},
-    ptr::null,
+    ffi::CStr,
+    ptr::{null, null_mut},
 };
 
 use fspy_shared_unix::cmdinfo::CommandInfo;
@@ -9,13 +9,16 @@ use bstr::{BStr, BString, ByteSlice};
 #[derive(Clone, Copy)]
 pub struct RawCommand {
     pub prog: *const libc::c_char,
-    pub argv: *const *const libc::c_char,
-    pub envp: *const *const libc::c_char,
+    pub argv: *const *mut libc::c_char,
+    pub envp: *const *mut libc::c_char,
 }
+
+// unsafe impl Send for RawCommand {}
+// unsafe impl Sync for RawCommand {}
 
 impl RawCommand {
     unsafe fn collect_c_str_array<T>(
-        strs: *const *const libc::c_char,
+        strs: *const *mut libc::c_char,
         mut map_fn: impl FnMut(&BStr) -> T,
     ) -> Vec<T> {
         let mut count = 0usize;
@@ -40,14 +43,14 @@ impl RawCommand {
     }
     fn to_c_str_array<R>(
         mut strs: Vec<BString>,
-        f: impl FnOnce(*const *const libc::c_char) -> R,
+        f: impl FnOnce(*const *mut libc::c_char) -> R,
     ) -> R {
-        let mut ptr_vec = Vec::<*const libc::c_char>::with_capacity(strs.len() + 1);
+        let mut ptr_vec = Vec::<*mut libc::c_char>::with_capacity(strs.len() + 1);
         for s in &mut strs {
             s.push(0);
-            ptr_vec.push(s.as_ptr().cast());
+            ptr_vec.push(s.as_mut_ptr().cast());
         }
-        ptr_vec.push(null());
+        ptr_vec.push(null_mut());
         f(ptr_vec.as_ptr())
     }
 

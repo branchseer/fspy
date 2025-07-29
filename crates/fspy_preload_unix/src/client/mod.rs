@@ -5,12 +5,14 @@ use std::{borrow::Cow, cell::RefCell, ffi::CStr, os::fd::RawFd, sync::LazyLock};
 
 use bincode::encode_into_std_write;
 use bstr::BStr;
-use fspy_shared::{
-    ipc::{AccessMode, BINCODE_CONFIG, NativeStr, NativeString, PathAccess},
+use fspy_shared::ipc::{AccessMode, BINCODE_CONFIG, NativeStr, NativeString, PathAccess};
+use fspy_shared_unix::{
+    payload::{EncodedPayload, decode_payload_from_env},
+    spawn::{PreSpawn, handle_spawn},
 };
-use fspy_shared_unix::payload::{EncodedPayload, decode_payload_from_env};
 
 use convert::{ToAbsolutePath, ToAccessMode};
+use raw_cmd::RawCommand;
 use thread_local::ThreadLocal;
 
 pub struct Client {
@@ -45,6 +47,17 @@ impl Client {
             .get_or_try(|| nix::Result::Ok(RefCell::new(&mut [])))?;
         dbg!(path_access);
         Ok(())
+    }
+
+    pub unsafe fn handle_spawn<R>(
+        &self,
+        find_in_path: bool,
+        raw_command: RawCommand,
+        f: impl FnOnce(RawCommand, Option<PreSpawn>) -> nix::Result<R>,
+    ) -> nix::Result<R> {
+        let mut cmd_info = unsafe { raw_command.into_command() };
+        let pre_spawn = handle_spawn(&mut cmd_info, find_in_path, &self.encoded_payload)?;
+        RawCommand::from_command(cmd_info, |raw_command| f(raw_command, pre_spawn))
     }
 
     pub unsafe fn handle_open(

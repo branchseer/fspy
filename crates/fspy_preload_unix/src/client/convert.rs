@@ -61,11 +61,14 @@ pub struct PathAt(pub c_int, pub *const c_char);
 impl ToAbsolutePath for PathAt {
     unsafe fn to_absolute_path<R, F: FnOnce(&BStr) -> nix::Result<R>>(self, f: F) -> nix::Result<R> {
         let pathname = unsafe { CStr::from_ptr(self.1) }.to_bytes().as_bstr();
+
         if pathname.first().copied() == Some(b'/') {
             f(pathname.into())
         } else {
             let mut abs_path = get_fd_path(self.0)?;
-            abs_path.push(OsStr::from_bytes(pathname));
+            if !pathname.is_empty() {
+                abs_path.push(OsStr::from_bytes(pathname));
+            }
             f(abs_path.as_os_str().as_bytes().as_bstr())
         }
     }

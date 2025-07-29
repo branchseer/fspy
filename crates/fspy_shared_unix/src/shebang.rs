@@ -88,7 +88,7 @@ pub fn parse_shebang<FS: FileSystem>(
     let Some(interpreter) = buf.split(|ch| is_whitespace(*ch)).next() else {
         return Ok(None);
     };
-    let arguments_buf = buf[interpreter.len()..].trim_ascii_start();
+    let arguments_buf = buf[interpreter.len()..].trim_ascii_start().as_bstr();
 
     let arguments: Vec<BString> = if options.split_arguments {
         arguments_buf
@@ -103,7 +103,11 @@ pub fn parse_shebang<FS: FileSystem>(
             })
             .collect()
     } else {
-        vec![arguments_buf.as_bstr().to_owned()]
+        if arguments_buf.is_empty() {
+            vec![]
+        } else {
+            vec![arguments_buf.to_owned()]
+        }
     };
 
     Ok(Some(Shebang {

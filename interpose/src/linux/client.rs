@@ -44,16 +44,7 @@ impl Client {
             tls_shm: ThreadLocal::new(),
         }
     }
-    // pub unsafe fn handle_exec(
-    //     &self,
-    //     alloc: StackAllocator<'_>,
-    //     raw_command: &mut RawCommand,
-    // ) -> nix::Result<()> {
-    //     let mut cmd = unsafe { raw_command.into_command(alloc) };
-    //     inject(alloc, &mut cmd, &self.payload_with_str)?;
-    //     *raw_command = RawCommand::from_command(alloc, &cmd);
-    //     Ok(())
-    // }
+
 
     pub unsafe fn handle_open(
         &self,

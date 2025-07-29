@@ -29,7 +29,7 @@ macro_rules! intercept {
             #[cfg(test)]
             #[test]
             fn symbol_64_does_not_exist() {
-               ::core::assert_eq!($crate::macros::(::core::stringify($name)), false);
+               ::core::assert_eq!($crate::macros::symbol_exists(::core::stringify!($name)), false);
             }
         }
     }
@@ -63,6 +63,7 @@ macro_rules! intercept_inner {
             }
         };
         mod $name {
+            #[allow(unused)]
             use super::*;
             pub unsafe fn original() -> $fn_sig {
                 static LAZY: std::sync::LazyLock<$fn_sig> = std::sync::LazyLock::new(|| unsafe {
