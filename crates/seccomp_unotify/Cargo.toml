@@ -10,7 +10,7 @@ arrayvec = "0.7.6"
 libc = "0.2.174"
 syscalls = { version = "0.6.18", default-features = false, features = ["std"] }
 tokio = { version = "1.46.1",  features = [ "net", "process", "io-util", "rt" ] }
-nix = { version = "0.30.1", features = [ "process", "fs", "poll" ] }
+nix = { version = "0.30.1", features = [ "process", "fs", "poll", "socket", "uio" ] }
 passfd = { git = "https://github.com/polachok/passfd", features = [ "async" ] }
 bytes = "1.10.1"
 tracing = "0.1.41"

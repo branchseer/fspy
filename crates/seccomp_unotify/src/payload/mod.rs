@@ -1,8 +1,10 @@
-use std::os::fd::OwnedFd;
+use std::os::fd::{RawFd};
 mod filter;
+use bincode::{Decode, Encode};
 pub use filter::Filter;
 
-pub struct Payload {
-    pub ipc_fd: OwnedFd,
-    pub filter: Filter,
+#[derive(Debug, Encode, Decode)]
+pub struct SeccompPayload {
+    pub(crate) ipc_fd: RawFd,
+    pub(crate) filter: Filter,
 }

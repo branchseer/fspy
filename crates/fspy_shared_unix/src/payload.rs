@@ -2,17 +2,18 @@ use base64::{Engine as _, prelude::BASE64_STANDARD_NO_PAD};
 use bincode::{Decode, Encode, config::standard};
 use bstr::BString;
 use std::{
-    ffi::OsString,
     os::{
         fd::RawFd,
-        unix::ffi::{OsStrExt as _, OsStringExt},
+        unix::ffi::OsStringExt,
     },
 };
+use seccomp_unotify::payload::SeccompPayload;
 
 #[derive(Debug, Encode, Decode)]
 pub struct Payload {
     pub ipc_fd: RawFd,
     pub preload_path: String,
+    pub seccomp_payload: SeccompPayload,
 }
 
 pub(crate) const PAYLOAD_ENV_NAME: &str = "FSPY_PAYLOAD";

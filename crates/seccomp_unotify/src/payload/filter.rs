@@ -1,6 +1,6 @@
 use bincode::{Decode, Encode};
 
-#[derive(Encode, Decode)]
+#[derive(Debug, Encode, Decode, Clone, Copy)]
 pub(crate) struct CodableSockFilter {
     code: u16,
     jt: u8,
@@ -24,5 +24,5 @@ impl From<CodableSockFilter> for libc::sock_filter {
     }
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, Debug)]
 pub struct Filter(pub(crate) Vec<CodableSockFilter>);

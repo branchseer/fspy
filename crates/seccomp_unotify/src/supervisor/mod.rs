@@ -2,24 +2,45 @@ pub mod handler;
 mod listener;
 
 use std::{
-    io,
-    os::fd::{FromRawFd, OwnedFd},
+    io::{self, IoSliceMut},
+    os::fd::{AsFd, AsRawFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
 };
 
 pub use handler::SeccompNotifyHandler;
 use listener::NotifyListener;
+use nix::{
+    cmsg_space,
+    fcntl::{FcntlArg, FdFlag, fcntl},
+    sys::socket::{ControlMessageOwned, MsgFlags, recvmsg},
+};
 use passfd::tokio::FdPassingExt as _;
 use seccompiler::{BpfProgram, SeccompAction, SeccompFilter};
-use tokio::{net::UnixStream, task::JoinSet};
+use tokio::{io::Interest, net::UnixStream, task::JoinSet};
 use tracing::{Level, span};
 
 use crate::{
     bindings::alloc::alloc_seccomp_notif_resp,
-    payload::{Filter, Payload},
+    payload::{Filter, SeccompPayload},
 };
 
+pub struct Supervisor<F> {
+    pub payload: SeccompPayload,
+    pub pre_exec: PreExec,
+    pub handling_loop: F,
+}
+
+pub struct PreExec(OwnedFd);
+impl PreExec {
+    pub fn run(&mut self) -> nix::Result<()> {
+        let mut fd_flag = FdFlag::from_bits_retain(fcntl(&self.0, FcntlArg::F_GETFD)?);
+        fd_flag.remove(FdFlag::FD_CLOEXEC);
+        fcntl(&self.0, FcntlArg::F_SETFD(fd_flag))?;
+        Ok(())
+    }
+}
+
 pub fn supervise<H: SeccompNotifyHandler + Default + Send + 'static>()
--> io::Result<(Payload, impl Future<Output = io::Result<Vec<H>>>)> {
+-> io::Result<Supervisor<impl Future<Output = io::Result<Vec<H>>> + Send>> {
     let (notify_fd_receiver, notify_fd_sender) = UnixStream::pair()?;
     let notify_fd_sender = notify_fd_sender.into_std()?;
     notify_fd_sender.set_nonblocking(false)?;
@@ -43,29 +64,33 @@ pub fn supervise<H: SeccompNotifyHandler + Default + Send + 'static>()
             .collect(),
     );
 
-    let payload = Payload {
-        ipc_fd: notify_fd_sender.into(),
+    let payload = SeccompPayload {
+        ipc_fd: notify_fd_sender.as_raw_fd(),
         filter,
     };
 
-    let handle_loop = async move {
+    let handling_loop = async move {
         let mut join_set: JoinSet<io::Result<H>> = JoinSet::new();
 
+        let mut cmsg_buf = cmsg_space!(RawFd);
+        let mut data_buf = [0u8; 1];
+        let mut iov = [IoSliceMut::new(&mut data_buf)];
         loop {
-            let notify_fd = match notify_fd_receiver.recv_fd().await {
-                Ok(raw_fd) => unsafe { OwnedFd::from_raw_fd(raw_fd) },
-                Err(err) => {
-                    return if err.kind() == io::ErrorKind::UnexpectedEof {
-                        let mut handlers = Vec::<H>::new();
-                        while let Some(handler) = join_set.join_next().await.transpose()? {
-                            handlers.push(handler?);
-                        }
-                        Ok(handlers)
-                    } else {
-                        Err(err)
-                    };
-                }
+            let control_message = notify_fd_receiver
+                .async_io(Interest::READABLE, || {
+                    let msg = recvmsg::<()>(
+                        notify_fd_receiver.as_fd().as_raw_fd(),
+                        &mut iov,
+                        Some(&mut cmsg_buf),
+                        MsgFlags::MSG_CMSG_CLOEXEC,
+                    )?;
+                    Ok(msg.cmsgs()?.next())
+                })
+                .await?;
+            let Some(ControlMessageOwned::ScmRights(control_message)) = control_message else {
+                break;
             };
+            let notify_fd = unsafe { OwnedFd::from_raw_fd(control_message[0]) };
 
             let mut listener = NotifyListener::try_from(notify_fd)?;
 
@@ -84,6 +109,15 @@ pub fn supervise<H: SeccompNotifyHandler + Default + Send + 'static>()
                 io::Result::Ok(handler)
             });
         }
+        let mut handlers = Vec::<H>::new();
+        while let Some(handler) = join_set.join_next().await.transpose()? {
+            handlers.push(handler?);
+        }
+        Ok(handlers)
     };
-    Ok((payload, handle_loop))
+    Ok(Supervisor {
+        payload,
+        pre_exec: PreExec(notify_fd_sender.into()),
+        handling_loop,
+    })
 }

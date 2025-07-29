@@ -7,9 +7,6 @@ use std::{
 use elf::{ElfBytes, abi::PT_INTERP, endian::AnyEndian};
 
 pub fn is_dynamically_linked_to_libc(executable: impl AsRef<[u8]>) -> nix::Result<bool> {
-    // let fd = open_executable(path)?;
-    // let mmap = unsafe { memmap2::Mmap::map(&fd) }
-    //     .map_err(|err| nix::Error::try_from(err).unwrap_or(nix::Error::UnknownErrno))?;
     let elf = ElfBytes::<'_, AnyEndian>::minimal_parse(executable.as_ref()).map_err(|_| nix::Error::ENOEXEC)?;
     let Some(headers) = elf.segments() else {
         return Ok(false);

@@ -1,6 +1,7 @@
 use assertables::assert_contains;
 use nix::fcntl::{AT_FDCWD, OFlag, openat};
 use nix::sys::stat::Mode;
+use seccomp_unotify::supervisor::Supervisor;
 use tokio::time::timeout;
 
 use std::env::{current_dir, set_current_dir};
@@ -8,6 +9,7 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::ffi::{CString, OsStr};
 use std::io;
+use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::time::Duration;
 use test_log::test;
@@ -48,12 +50,16 @@ async fn run_in_pre_exec(
 ) -> Result<Vec<Syscall>, Box<dyn Error>> {
     Ok(timeout(Duration::from_secs(5), async move {
         let mut cmd = Command::new("/bin/echo");
-        let (payload, handle_loop) = supervise::<SyscallRecorder>()?;
+        let Supervisor {
+            payload,
+            handling_loop,
+            mut pre_exec,
+        } = supervise::<SyscallRecorder>()?;
 
-        let mut payload = Some(payload);
         unsafe {
             cmd.pre_exec(move || {
-                install_target(payload.take().unwrap())?;
+                install_target(&payload)?;
+                pre_exec.run()?;
                 f()?;
                 Ok(())
             });
@@ -65,7 +71,7 @@ async fn run_in_pre_exec(
         trace!("waiting for handler to finish and test child process to exit");
         let (recorders, exit_status) = futures_util::future::try_join(
             async move {
-                let recorders = handle_loop.await?;
+                let recorders = handling_loop.await?;
                 trace!("{} recorders awaited", recorders.len());
                 Ok(recorders)
             },
@@ -161,6 +167,9 @@ async fn path_overflow() -> Result<(), Box<dyn Error>> {
     })
     .await;
     let err = ret.unwrap_err();
-    assert_eq!(err.downcast::<io::Error>().unwrap().kind(), io::ErrorKind::InvalidFilename);
+    assert_eq!(
+        err.downcast::<io::Error>().unwrap().kind(),
+        io::ErrorKind::InvalidFilename
+    );
     Ok(())
 }
