@@ -9,7 +9,6 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::ffi::{CString, OsStr};
 use std::io;
-use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::time::Duration;
 use test_log::test;
