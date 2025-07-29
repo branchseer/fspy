@@ -1,4 +1,5 @@
 pub mod convert;
+pub mod raw_cmd;
 
 use std::{borrow::Cow, cell::RefCell, ffi::CStr, os::fd::RawFd, sync::LazyLock};
 
@@ -6,18 +7,14 @@ use bincode::encode_into_std_write;
 use bstr::BStr;
 use fspy_shared::{
     ipc::{AccessMode, BINCODE_CONFIG, NativeStr, NativeString, PathAccess},
-    linux::{
-        PAYLOAD_ENV_NAME, Payload,
-        inject::{PayloadWithEncodedString, inject},
-    },
-    unix::{env::decode_env},
 };
+use fspy_shared_unix::payload::{EncodedPayload, decode_payload_from_env};
 
 use convert::{ToAbsolutePath, ToAccessMode};
 use thread_local::ThreadLocal;
 
 pub struct Client {
-    payload_with_str: PayloadWithEncodedString,
+    encoded_payload: EncodedPayload,
     tls_shm: ThreadLocal<RefCell<&'static mut [u8]>>,
 }
 
@@ -25,13 +22,9 @@ const SHM_CHUNK_SIZE: usize = 65535;
 
 impl Client {
     fn from_env() -> Self {
-        let payload_string = std::env::var_os(PAYLOAD_ENV_NAME).unwrap();
-        let payload = decode_env::<Payload>(&payload_string);
+        let encoded_payload = decode_payload_from_env().unwrap();
         Self {
-            payload_with_str: PayloadWithEncodedString {
-                payload,
-                payload_string,
-            },
+            encoded_payload,
             tls_shm: ThreadLocal::new(),
         }
     }

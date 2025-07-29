@@ -53,4 +53,5 @@ derive-where = "1.4.0"
 path-dedot = "3.1.1"
 ref-cast = "1.0.24"
 which = "7.0.3"
+fspy_shared_unix = { workspace = true }
 fspy_shared = { workspace = true }

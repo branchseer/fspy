@@ -34,11 +34,6 @@ use tokio::{net::UnixStream, process::Child as TokioChild};
 
 use fspy_shared::{
     ipc::{BINCODE_CONFIG, PathAccess},
-    linux::{
-        EXECVE_HOST_NAME, Payload,
-        inject::{PayloadWithEncodedString, inject},
-    },
-    unix::env::encode_env,
 };
 use futures_util::{
     FutureExt, Stream, TryStream, TryStreamExt, future::BoxFuture, stream::poll_fn,
@@ -112,15 +107,15 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
     sender.set_nonblocking(false)?;
     let sender = OwnedFd::from(sender);
 
-    let payload = Payload {
-        preload_lib_path,
-        ipc_fd: sender.as_raw_fd(),
-    };
+    // let payload = Payload {
+    //     preload_lib_path,
+    //     ipc_fd: sender.as_raw_fd(),
+    // };
     
-    let payload_with_str = PayloadWithEncodedString {
-        payload_string: encode_env(&payload),
-        payload,
-    };
+    // let payload_with_str = PayloadWithEncodedString {
+    //     payload_string: encode_env(&payload),
+    //     payload,
+    // };
     // command.resolve_program()?;
     // let bump = Bump::new();
     // command.with_info(&bump, |cmd_info| {
@@ -164,7 +159,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
 
 impl SpyInner {
     pub fn init() -> io::Result<Self> {
-        let execve_host_memfd = memfd_create(EXECVE_HOST_NAME, MFdFlags::MFD_CLOEXEC)?;
+        let execve_host_memfd = memfd_create("fspy_preload", MFdFlags::MFD_CLOEXEC)?;
         let mut execve_host_memfile = File::from(execve_host_memfd);
         execve_host_memfile.write_all(EXECVE_HOST_BINARY)?;
         Ok(Self {

@@ -1,7 +1,6 @@
 mod raw;
 
 use bstr::{BStr, BString};
-pub use raw::RawCommand;
 
 use std::{ffi::OsStr, iter::once, mem::replace, os::unix::ffi::OsStrExt, path::Path};
 
