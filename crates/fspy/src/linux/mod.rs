@@ -8,13 +8,15 @@ use fspy_shared_unix::{
     payload::{Payload, encode_payload},
     spawn::handle_spawn,
 };
+use memmap2::Mmap;
 use seccomp_unotify::supervisor::supervise;
 use std::{
     ffi::{CString, OsStr, OsString},
     fs::File,
     io::{self, Write},
+    iter,
     mem::ManuallyDrop,
-    ops::ControlFlow,
+    ops::{ControlFlow, Deref},
     os::{
         fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
         unix::{
@@ -24,12 +26,15 @@ use std::{
     },
     path::PathBuf,
     ptr::null_mut,
-    sync::{Arc, LazyLock},
+    sync::{
+        Arc, LazyLock,
+        atomic::{AtomicU16, Ordering},
+    },
     task::Poll,
 };
 use syscall_handler::SyscallHandler;
 
-use bincode::error::DecodeError;
+use bincode::{borrow_decode_from_slice, error::DecodeError};
 use bumpalo::Bump;
 use passfd::{FdPassingExt as _, tokio::FdPassingExt as _};
 
@@ -39,7 +44,9 @@ use tokio::{net::UnixStream, process::Child as TokioChild};
 
 use fspy_shared::ipc::{BINCODE_CONFIG, PathAccess};
 use futures_util::{
-    FutureExt, Stream, TryStream, TryStreamExt, future::BoxFuture, stream::poll_fn,
+    FutureExt, Stream, TryStream, TryStreamExt,
+    future::{BoxFuture, try_join},
+    stream::poll_fn,
 };
 use nix::{
     fcntl::{FcntlArg, FdFlag, OFlag, fcntl},
@@ -87,14 +94,39 @@ fn unset_fl_flag(fd: BorrowedFd<'_>, flag_to_remove: OFlag) -> io::Result<()> {
 
 pub struct PathAccessIterable {
     arenas: Vec<PathAccessArena>,
+    shm_mmaps: Vec<Mmap>,
 }
 
 impl PathAccessIterable {
     pub fn iter(&self) -> impl Iterator<Item = PathAccess<'_>> {
-        self.arenas
+        let accesses_in_arena = self
+            .arenas
             .iter()
             .flat_map(|arena| arena.borrow_accesses().iter())
-            .copied()
+            .copied();
+
+        let accesses_in_shm = self.shm_mmaps.iter().flat_map(|mmap| {
+            let mut buf = mmap.deref();
+            iter::from_fn(move || {
+                let (size_buf, remaining_buf) = buf.split_first_chunk::<{ size_of::<u16>() }>()?;
+                let atomic_size =
+                    unsafe { AtomicU16::from_ptr(size_buf.as_ptr().cast_mut().cast()) };
+                let size = usize::from(atomic_size.load(Ordering::Acquire));
+                if size == 0 {
+                    return None;
+                };
+                let (path_access_buf, remaining_buf) = remaining_buf.split_at(size);
+                buf = remaining_buf;
+
+                let (path_access, decoded_size) =
+                    borrow_decode_from_slice::<PathAccess<'_>, _>(path_access_buf, BINCODE_CONFIG)
+                        .unwrap();
+                assert_eq!(decoded_size, size);
+
+                Some(path_access)
+            })
+        });
+        accesses_in_shm.chain(accesses_in_arena)
     }
 }
 
@@ -104,16 +136,16 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
         command.spy_inner.preload_lib_memfd.as_raw_fd()
     );
 
-    let (sender, receiver) = UnixStream::pair()?;
+    let (shm_fd_sender, shm_fd_receiver) = UnixStream::pair()?;
 
-    let sender = sender.into_std()?;
-    sender.set_nonblocking(false)?;
-    let sender = OwnedFd::from(sender);
+    let shm_fd_sender = shm_fd_sender.into_std()?;
+    shm_fd_sender.set_nonblocking(false)?;
+    let shm_fd_sender = OwnedFd::from(shm_fd_sender);
 
     let supervisor = supervise::<SyscallHandler>()?;
 
     let payload = Payload {
-        ipc_fd: sender.as_raw_fd(),
+        ipc_fd: shm_fd_sender.as_raw_fd(),
 
         #[cfg(target_os = "linux")]
         preload_path: format!(
@@ -139,6 +171,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
     unsafe {
         tokio_command.pre_exec(move || {
             unset_fd_flag(preload_lib_memfd.as_fd(), FdFlag::FD_CLOEXEC)?;
+            unset_fd_flag(shm_fd_sender.as_fd(), FdFlag::FD_CLOEXEC)?;
             supervisor_pre_exec.run()?;
             if let Some(pre_spawn) = &mut pre_spawn {
                 pre_spawn.run()?;
@@ -153,13 +186,37 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
     // so that channel_receiver reaches eof as soon as the last descendant process exits.
     drop(tokio_command);
 
-    let accesses_future = async move {
+    let arenas_future = async move {
         let handlers = supervisor.handling_loop.await?;
         let arenas = handlers
             .into_iter()
             .map(|handler| handler.arena)
             .collect::<Vec<_>>();
-        io::Result::Ok(PathAccessIterable { arenas })
+        io::Result::Ok(arenas)
+    };
+
+    let shm_future = async move {
+        let mut shm_mmaps = Vec::<Mmap>::new();
+        loop {
+            let fd = match shm_fd_receiver.recv_fd().await {
+                Ok(fd) => unsafe { OwnedFd::from_raw_fd(fd) },
+                Err(err) => {
+                    if err.kind() == io::ErrorKind::UnexpectedEof {
+                        break;
+                    } else {
+                        return Err(err);
+                    }
+                }
+            };
+            let mmap = unsafe { Mmap::map(&fd)? };
+            shm_mmaps.push(mmap);
+        }
+        io::Result::Ok(shm_mmaps)
+    };
+
+    let accesses_future = async move {
+        let (arenas, shm_mmaps) = try_join(arenas_future, shm_future).await?;
+        Ok(PathAccessIterable { arenas, shm_mmaps })
     }
     .boxed();
 

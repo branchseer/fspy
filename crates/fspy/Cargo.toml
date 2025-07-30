@@ -45,6 +45,7 @@ nix = { version = "0.30.1", features = ["fs", "process", "socket", "feature"] }
 passfd = { git = "https://github.com/polachok/passfd", features = [
     "async",
 ] }
+memmap2 = "0.9.7"
 # asyncfd = "0.1.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -1,9 +1,23 @@
 pub mod convert;
 pub mod raw_cmd;
 
-use std::{borrow::Cow, cell::RefCell, ffi::CStr, os::fd::RawFd, sync::LazyLock};
+use std::{
+    borrow::Cow,
+    cell::{Ref, RefCell},
+    ffi::CStr,
+    io,
+    ops::DerefMut as _,
+    os::fd::{AsRawFd, RawFd},
+    sync::{
+        atomic::{fence, AtomicU16, AtomicUsize, Ordering}, LazyLock
+    },
+    time::{Instant, SystemTime},
+};
 
-use bincode::encode_into_std_write;
+use anyhow::Context;
+use bincode::{
+    enc::write::SizeWriter, encode_into_slice, encode_into_std_write, encode_into_writer,
+};
 use bstr::BStr;
 use fspy_shared::ipc::{AccessMode, BINCODE_CONFIG, NativeStr, NativeString, PathAccess};
 use fspy_shared_unix::{
@@ -12,22 +26,54 @@ use fspy_shared_unix::{
 };
 
 use convert::{ToAbsolutePath, ToAccessMode};
+use libc::off_t;
+use memmap2::{Mmap, MmapMut};
+use nix::{
+    fcntl::OFlag,
+    sys::{
+        mman::{shm_open, shm_unlink},
+        stat::Mode,
+    },
+    time::{ClockId, clock_gettime},
+    unistd::{Pid, ftruncate, getpid},
+};
+use passfd::FdPassingExt;
 use raw_cmd::RawCommand;
 use thread_local::ThreadLocal;
 
-pub struct Client {
-    encoded_payload: EncodedPayload,
-    tls_shm: ThreadLocal<RefCell<&'static mut [u8]>>,
+struct ShmCursor {
+    mmap_mut: MmapMut,
+    position: usize,
+}
+impl ShmCursor {
+    pub fn advance(&mut self, len: usize) -> Option<&mut [u8]> {
+        let new_position = self.position.checked_add(len)?;
+        if new_position > self.mmap_mut.len() {
+            return None;
+        };
+        let buf = &mut self.mmap_mut[self.position..new_position];
+        self.position = new_position;
+        Some(buf)
+    }
 }
 
-const SHM_CHUNK_SIZE: usize = 65535;
+pub struct Client {
+    encoded_payload: EncodedPayload,
+    pid: Pid,
+    shm_id: AtomicUsize,
+    tls_shm_cursor: ThreadLocal<RefCell<ShmCursor>>,
+}
+
+const SHM_CHUNK_SIZE: off_t = 256 * 1024;
 
 impl Client {
     fn from_env() -> Self {
         let encoded_payload = decode_payload_from_env().unwrap();
         Self {
+            shm_id: AtomicUsize::new(0),
+            pid: getpid(),
             encoded_payload,
-            tls_shm: ThreadLocal::new(),
+            tls_shm_cursor: ThreadLocal::new(),
         }
     }
     // pub unsafe fn handle_exec(
@@ -41,11 +87,72 @@ impl Client {
     //     Ok(())
     // }
 
-    fn send(&self, path_access: PathAccess<'_>) -> nix::Result<()> {
-        let buf = self
-            .tls_shm
-            .get_or_try(|| nix::Result::Ok(RefCell::new(&mut [])))?;
-        dbg!(path_access);
+    fn new_shm(&self) -> io::Result<ShmCursor> {
+        let shm_name = format!(
+            "/fspy_shm_{}_{}",
+            self.pid,
+            self.shm_id.fetch_add(1, Ordering::Relaxed),
+        );
+        let shm_fd = shm_open(
+            shm_name.as_str(),
+            OFlag::O_CLOEXEC | OFlag::O_RDWR | OFlag::O_CREAT | OFlag::O_EXCL,
+            Mode::empty(),
+        )?;
+        shm_unlink(shm_name.as_str())?;
+        self.encoded_payload.payload.ipc_fd.send_fd(shm_fd.as_raw_fd())?;
+        ftruncate(&shm_fd, SHM_CHUNK_SIZE)?;
+        let mmap_mut = unsafe { MmapMut::map_mut(&shm_fd) }?;
+        Ok(ShmCursor {
+            mmap_mut,
+            position: 0,
+        })
+    }
+
+    fn with_shm_buf<R>(
+        &self,
+        len: usize,
+        f: impl FnOnce(&mut [u8]) -> anyhow::Result<R>,
+    ) -> anyhow::Result<R> {
+        let shm_buf = self
+            .tls_shm_cursor
+            .get_or_try(|| io::Result::Ok(RefCell::new(self.new_shm()?)))?;
+
+        let mut shm_buf = shm_buf.borrow_mut();
+        if let Some(buf) = shm_buf.advance(len) {
+            f(buf)
+        } else {
+            *shm_buf = self.new_shm()?;
+            let buf = shm_buf.advance(len).with_context(|| {
+                format!(
+                    "The requested buf ({}) is greater than the shm chunk size ({})",
+                    len, SHM_CHUNK_SIZE
+                )
+            })?;
+            f(buf)
+        }
+    }
+
+    fn send(&self, path_access: PathAccess<'_>) -> anyhow::Result<()> {
+        let mut size_writer = SizeWriter::default();
+        encode_into_writer(&path_access, &mut size_writer, BINCODE_CONFIG)?;
+
+        let size = u16::try_from(size_writer.bytes_written).with_context(|| {
+            format!(
+                "The size of encoded path access {} can not fit into a u16",
+                size_writer.bytes_written
+            )
+        })?;
+
+        self.with_shm_buf(size_of::<u16>() + size_writer.bytes_written, |buf| {
+            let data_buf = &mut buf[size_of::<u16>()..];
+            let written_size = encode_into_slice(&path_access, data_buf, BINCODE_CONFIG)?;
+            assert_eq!(written_size, data_buf.len());
+
+            let size_ptr = buf.as_mut_ptr().cast::<u16>();
+            unsafe { AtomicU16::from_ptr(size_ptr) }.store(size, Ordering::Release);
+            Ok(())
+        })?;
+
         Ok(())
     }
 
@@ -64,16 +171,19 @@ impl Client {
         &self,
         path: impl ToAbsolutePath,
         mode: impl ToAccessMode,
-    ) -> nix::Result<()> {
+    ) -> anyhow::Result<()> {
         let mode = unsafe { mode.to_access_mode() };
         let () = unsafe {
             path.to_absolute_path(|abs_path| {
-                self.send(PathAccess {
+                if abs_path.starts_with(b"/dev/shm/") {
+                    return Ok(Ok(()));
+                };
+                Ok(self.send(PathAccess {
                     mode,
                     path: abs_path.into(),
-                })
+                }))
             })
-        }?;
+        }??;
 
         Ok(())
     }

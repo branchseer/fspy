@@ -13,7 +13,7 @@ use nix::{
     fcntl::{FcntlArg, FdFlag, fcntl},
     sys::socket::{ControlMessageOwned, MsgFlags, recvmsg},
 };
-use passfd::tokio::FdPassingExt as _;
+use passfd::tokio::FdPassingExt;
 use seccompiler::{BpfProgram, SeccompAction, SeccompFilter};
 use tokio::{io::Interest, net::UnixStream, task::JoinSet};
 use tracing::{Level, span};
@@ -72,26 +72,17 @@ pub fn supervise<H: SeccompNotifyHandler + Default + Send + 'static>()
     let handling_loop = async move {
         let mut join_set: JoinSet<io::Result<H>> = JoinSet::new();
 
-        let mut cmsg_buf = cmsg_space!(RawFd);
-        let mut data_buf = [0u8; 1];
-        let mut iov = [IoSliceMut::new(&mut data_buf)];
         loop {
-            let control_message = notify_fd_receiver
-                .async_io(Interest::READABLE, || {
-                    let msg = recvmsg::<()>(
-                        notify_fd_receiver.as_fd().as_raw_fd(),
-                        &mut iov,
-                        Some(&mut cmsg_buf),
-                        MsgFlags::MSG_CMSG_CLOEXEC,
-                    )?;
-                    Ok(msg.cmsgs()?.next())
-                })
-                .await?;
-            let Some(ControlMessageOwned::ScmRights(control_message)) = control_message else {
-                break;
+            let notify_fd = match notify_fd_receiver.recv_fd().await {
+                Ok(fd) => unsafe { OwnedFd::from_raw_fd(fd) },
+                Err(err) => {
+                    if err.kind() == io::ErrorKind::UnexpectedEof {
+                        break;
+                    } else {
+                        return Err(err);
+                    }
+                }
             };
-            let notify_fd = unsafe { OwnedFd::from_raw_fd(control_message[0]) };
-
             let mut listener = NotifyListener::try_from(notify_fd)?;
 
             let mut handler = H::default();
