@@ -35,8 +35,8 @@ unsafe fn handle_posix_spawn(
             find_in_path,
             RawCommand {
                 prog: file,
-                argv,
-                envp,
+                argv: argv.cast(),
+                envp: envp.cast(),
             },
             |raw_command, pre_spawn| {
                 let call_original = move || {
@@ -45,8 +45,8 @@ unsafe fn handle_posix_spawn(
                         raw_command.prog,
                         file_actions,
                         attrp,
-                        raw_command.argv,
-                        raw_command.envp,
+                        raw_command.argv.cast(),
+                        raw_command.envp.cast(),
                     )
                 };
                 if let Some(mut pre_spawn) = pre_spawn {
