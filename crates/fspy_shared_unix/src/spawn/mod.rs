@@ -9,8 +9,10 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::{OsStrExt as _, OsStringExt as _};
 use std::path::Path;
 use std::thread;
-use which::which_in;
+use which::sys::Sys;
+use which::{which_in, WhichConfig};
 
+use crate::fs::HandleSpawnFileSystem;
 use crate::open_exec::open_executable;
 use crate::payload::PAYLOAD_ENV_NAME;
 
@@ -28,10 +30,11 @@ impl PreSpawn {
     }
 }
 
-pub fn handle_spawn<'a>(
+pub fn handle_spawn<'a, FS: HandleSpawnFileSystem>(
+    fs: &FS,
     command: &mut CommandInfo,
     find_in_path: bool,
-    encoded_payload: &'a EncodedPayload,
+    encoded_payload: &EncodedPayload,
 ) -> nix::Result<Option<PreSpawn>> {
     if find_in_path {
         let path = command.envs.iter().find_map(|(name, value)| {
@@ -47,11 +50,12 @@ pub fn handle_spawn<'a>(
             .map_err(|_| nix::Error::ENOENT)?;
         command.program = program.into_os_string().into_vec().into();
     }
-    command.parse_shebang()?;
+    command.parse_shebang(fs)?;
 
     let executable_fd = open_executable(Path::new(OsStr::from_bytes(&command.program)))?;
     let executable_mmap = unsafe { Mmap::map(&executable_fd) }
         .map_err(|io_error| nix::Error::try_from(io_error).unwrap_or(nix::Error::UnknownErrno))?;
+
     if elf::is_dynamically_linked_to_libc(executable_mmap)? {
         ensure_env(
             &mut command.envs,
@@ -68,6 +72,8 @@ pub fn handle_spawn<'a>(
         command
             .envs
             .retain(|(name, _)| name != LD_PRELOAD && name != PAYLOAD_ENV_NAME);
-        Ok(Some(PreSpawn(encoded_payload.payload.seccomp_payload.clone())))
+        Ok(Some(PreSpawn(
+            encoded_payload.payload.seccomp_payload.clone(),
+        )))
     }
 }

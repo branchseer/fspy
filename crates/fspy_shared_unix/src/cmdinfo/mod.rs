@@ -4,7 +4,7 @@ use bstr::{BStr, BString};
 
 use std::{ffi::OsStr, iter::once, mem::replace, os::unix::ffi::OsStrExt, path::Path};
 
-use crate::shebang::NixFileSystem;
+use crate::shebang::{FileSystem, NixFileSystem};
 
 use super::shebang::parse_shebang;
 
@@ -17,10 +17,10 @@ pub struct CommandInfo {
 }
 
 impl CommandInfo {
-    pub fn parse_shebang(&mut self) -> nix::Result<()> {
+    pub fn parse_shebang<FS: FileSystem>(&mut self, fs: &FS) -> Result<(), FS::Error> {
         // TODO: collect path accesses in fs
         if let Some(shebang) = parse_shebang(
-            &NixFileSystem::default(),
+            fs,
             Path::new(OsStr::from_bytes(&self.program)),
             Default::default(),
         )? {
