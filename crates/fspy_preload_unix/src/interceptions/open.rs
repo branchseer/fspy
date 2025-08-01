@@ -20,14 +20,8 @@ fn has_mode_arg(o_flags: c_int) -> bool {
     false
 }
 
-#[ctor::ctor]
-fn s() {
-    dbg!(std::env::current_exe());
-}
-
 intercept!(open(64): unsafe extern "C" fn(*const c_char, c_int, args: ...) -> c_int);
 unsafe extern "C" fn open(path: *const c_char, flags: c_int, mut args: ...) -> c_int {
-    eprintln!("open {:?}", std::env::current_exe());
     unsafe { global_client().handle_open(path, OpenFlags(flags)) }.unwrap();
     if has_mode_arg(flags) {
         // https://github.com/tailhook/openat/issues/21#issuecomment-535914957
@@ -45,8 +39,6 @@ unsafe extern "C" fn openat(
     flags: c_int,
     mut args: ...
 ) -> c_int {
-
-    eprintln!("open {:?}", std::env::current_exe());
     unsafe { global_client().handle_open(PathAt(dirfd, path_ptr), OpenFlags(flags)) }.unwrap();
 
     if has_mode_arg(flags) {

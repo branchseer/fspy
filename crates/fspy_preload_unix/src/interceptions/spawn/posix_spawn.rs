@@ -83,7 +83,6 @@ unsafe extern "C" fn posix_spawnp(
     argv: *const *mut c_char,
     envp: *const *mut c_char,
 ) -> libc::c_int {
-    eprintln!("posix_spawnp");
    unsafe { handle_posix_spawn(true, posix_spawnp::original(), pid, file, file_actions, attrp, argv, envp) }
 }
 
@@ -96,6 +95,5 @@ unsafe extern "C" fn posix_spawn(
     argv: *const *mut c_char,
     envp: *const *mut c_char,
 ) -> libc::c_int {
-    eprintln!("posix_spawn");
    unsafe { handle_posix_spawn(false, posix_spawn::original(), pid, file, file_actions, attrp, argv, envp) }
 }

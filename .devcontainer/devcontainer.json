@@ -3,9 +3,10 @@
 {
 	"name": "Rust",
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-	"image": "mcr.microsoft.com/devcontainers/rust:1-1-bullseye",
-	"postCreateCommand": "sudo dpkg --add-architecture amd64 && sudo apt-get update && sudo apt-get install -y libc6:amd64",
+	"image": "mcr.microsoft.com/vscode/devcontainers/base:ubuntu-22.04",
+	"postCreateCommand": "",
 	"features": {
+		"ghcr.io/devcontainers/features/rust:1": {},
 		"ghcr.io/devcontainers-extra/features/mise:1": {},
 		"ghcr.io/devcontainers-extra/features/fish-apt-get:1": {}
 	},

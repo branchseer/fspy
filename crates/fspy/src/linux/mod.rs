@@ -129,17 +129,26 @@ impl PathAccessIterable {
     }
 }
 
+
+// https://github.com/nodejs/node/blob/5794e644b724c6c6cac02d306d87a4d6b78251e5/deps/uv/src/unix/core.c#L803-L808
+fn duplicate_until_safe(mut fd: OwnedFd) -> io::Result<OwnedFd> {
+    let mut fds: Vec<OwnedFd> = vec![];
+    const SAFE_FD_NUM: RawFd = 17;
+    while fd.as_raw_fd() < SAFE_FD_NUM {
+        let new_fd = fd.try_clone()?;
+        fds.push(fd);
+        fd = new_fd;
+    }
+    Ok(fd)
+}
+
 pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild> {
-    let preload_path = format!(
-        "/proc/self/fd/{}",
-        command.spy_inner.preload_lib_memfd.as_raw_fd()
-    );
 
     let (shm_fd_sender, shm_fd_receiver) = UnixStream::pair()?;
 
     let shm_fd_sender = shm_fd_sender.into_std()?;
     shm_fd_sender.set_nonblocking(false)?;
-    let shm_fd_sender = OwnedFd::from(shm_fd_sender);
+    let shm_fd_sender = duplicate_until_safe(OwnedFd::from(shm_fd_sender))?;
 
     let supervisor = supervise::<SyscallHandler>()?;
 
@@ -234,8 +243,10 @@ impl SpyInner {
         let preload_lib_memfd = memfd_create("fspy_preload", MFdFlags::MFD_CLOEXEC)?;
         let mut execve_host_memfile = File::from(preload_lib_memfd);
         execve_host_memfile.write_all(EXECVE_HOST_BINARY)?;
+
+        let preload_lib_memfd = duplicate_until_safe(OwnedFd::from(execve_host_memfile))?;
         Ok(Self {
-            preload_lib_memfd: Arc::new(OwnedFd::from(execve_host_memfile)),
+            preload_lib_memfd: Arc::new(preload_lib_memfd),
         })
     }
 }
