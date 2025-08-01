@@ -28,7 +28,7 @@ use std::{
     ptr::null_mut,
     sync::{
         Arc, LazyLock,
-        atomic::{AtomicU16, Ordering},
+        atomic::{AtomicU8, AtomicU16, Ordering, fence},
     },
     task::Poll,
 };
@@ -106,22 +106,21 @@ impl PathAccessIterable {
             .copied();
 
         let accesses_in_shm = self.shm_mmaps.iter().flat_map(|mmap| {
-            let mut buf = mmap.deref();
+            let buf = mmap.deref();
+            let mut position = 0usize;
             iter::from_fn(move || {
-                let (size_buf, remaining_buf) = buf.split_first_chunk::<{ size_of::<u16>() }>()?;
-                let atomic_size =
-                    unsafe { AtomicU16::from_ptr(size_buf.as_ptr().cast_mut().cast()) };
-                let size = usize::from(atomic_size.load(Ordering::Acquire));
-                if size == 0 {
+                let (flag_buf, data_buf) = buf[position..].split_first()?;
+                let atomic_flag = unsafe { AtomicU8::from_ptr((flag_buf as *const u8).cast_mut()) };
+                let flag = atomic_flag.load(Ordering::Acquire);
+                if flag == 0 {
                     return None;
                 };
-                let (path_access_buf, remaining_buf) = remaining_buf.split_at(size);
-                buf = remaining_buf;
-
+                fence(Ordering::Acquire);
                 let (path_access, decoded_size) =
-                    borrow_decode_from_slice::<PathAccess<'_>, _>(path_access_buf, BINCODE_CONFIG)
+                    borrow_decode_from_slice::<PathAccess<'_>, _>(data_buf, BINCODE_CONFIG)
                         .unwrap();
-                assert_eq!(decoded_size, size);
+
+                position += decoded_size + 1;
 
                 Some(path_access)
             })
@@ -196,9 +195,9 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
     };
 
     let shm_future = async move {
-        let mut shm_mmaps = Vec::<Mmap>::new();
+        let mut shm_fds = Vec::<OwnedFd>::new();
         loop {
-            let fd = match shm_fd_receiver.recv_fd().await {
+            let shm_fd = match shm_fd_receiver.recv_fd().await {
                 Ok(fd) => unsafe { OwnedFd::from_raw_fd(fd) },
                 Err(err) => {
                     if err.kind() == io::ErrorKind::UnexpectedEof {
@@ -208,14 +207,18 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
                     }
                 }
             };
-            let mmap = unsafe { Mmap::map(&fd)? };
-            shm_mmaps.push(mmap);
+            // let mmap = unsafe { Mmap::map(&fd)? };
+            shm_fds.push(shm_fd);
         }
-        io::Result::Ok(shm_mmaps)
+        io::Result::Ok(shm_fds)
     };
 
     let accesses_future = async move {
-        let (arenas, shm_mmaps) = try_join(arenas_future, shm_future).await?;
+        let (arenas, shm_fds) = try_join(arenas_future, shm_future).await?;
+        let shm_mmaps = shm_fds
+            .into_iter()
+            .map(|fd| unsafe { Mmap::map(&fd) })
+            .collect::<io::Result<Vec<Mmap>>>()?;
         Ok(PathAccessIterable { arenas, shm_mmaps })
     }
     .boxed();

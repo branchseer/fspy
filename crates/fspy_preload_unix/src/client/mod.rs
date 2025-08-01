@@ -9,7 +9,7 @@ use std::{
     ops::DerefMut as _,
     os::fd::{AsRawFd, RawFd},
     sync::{
-        atomic::{fence, AtomicU16, AtomicUsize, Ordering}, LazyLock
+        atomic::{fence, AtomicU16, AtomicU8, AtomicUsize, Ordering}, LazyLock
     },
     time::{Instant, SystemTime},
 };
@@ -136,20 +136,14 @@ impl Client {
         let mut size_writer = SizeWriter::default();
         encode_into_writer(&path_access, &mut size_writer, BINCODE_CONFIG)?;
 
-        let size = u16::try_from(size_writer.bytes_written).with_context(|| {
-            format!(
-                "The size of encoded path access {} can not fit into a u16",
-                size_writer.bytes_written
-            )
-        })?;
-
-        self.with_shm_buf(size_of::<u16>() + size_writer.bytes_written, |buf| {
-            let data_buf = &mut buf[size_of::<u16>()..];
+        self.with_shm_buf(1 + size_writer.bytes_written, |buf| {
+            let data_buf = &mut buf[1..];
             let written_size = encode_into_slice(&path_access, data_buf, BINCODE_CONFIG)?;
-            assert_eq!(written_size, data_buf.len());
+            debug_assert_eq!(written_size, size_writer.bytes_written);
 
-            let size_ptr = buf.as_mut_ptr().cast::<u16>();
-            unsafe { AtomicU16::from_ptr(size_ptr) }.store(size, Ordering::Release);
+            let flag_ptr = buf.as_mut_ptr().cast::<u8>();
+            fence(Ordering::Release);
+            unsafe { AtomicU8::from_ptr(flag_ptr) }.store(1, Ordering::Release);
             Ok(())
         })?;
 
