@@ -9,7 +9,8 @@ use std::{
     ops::DerefMut as _,
     os::fd::{AsRawFd, RawFd},
     sync::{
-        atomic::{fence, AtomicU16, AtomicU8, AtomicUsize, Ordering}, LazyLock
+        LazyLock,
+        atomic::{AtomicU8, AtomicU16, AtomicUsize, Ordering, fence},
     },
     time::{Instant, SystemTime},
 };
@@ -99,7 +100,10 @@ impl Client {
             Mode::empty(),
         )?;
         shm_unlink(shm_name.as_str())?;
-        self.encoded_payload.payload.ipc_fd.send_fd(shm_fd.as_raw_fd())?;
+        self.encoded_payload
+            .payload
+            .ipc_fd
+            .send_fd(shm_fd.as_raw_fd())?;
         ftruncate(&shm_fd, SHM_CHUNK_SIZE)?;
         let mmap_mut = unsafe { MmapMut::map_mut(&shm_fd) }?;
         Ok(ShmCursor {
@@ -161,7 +165,7 @@ impl Client {
         RawCommand::from_command(cmd_info, |raw_command| f(raw_command, pre_spawn))
     }
 
-    pub unsafe fn handle_open(
+    pub unsafe fn try_handle_open(
         &self,
         path: impl ToAbsolutePath,
         mode: impl ToAccessMode,
@@ -169,7 +173,7 @@ impl Client {
         let mode = unsafe { mode.to_access_mode() };
         let () = unsafe {
             path.to_absolute_path(|abs_path| {
-                if abs_path.starts_with(b"/dev/shm/") {
+                if cfg!(target_os = "linux") && abs_path.starts_with(b"/dev/shm/") {
                     return Ok(Ok(()));
                 };
                 Ok(self.send(PathAccess {
@@ -181,9 +185,12 @@ impl Client {
 
         Ok(())
     }
+    pub unsafe fn handle_open(&self, path: impl ToAbsolutePath, mode: impl ToAccessMode) {
+        unsafe { self.try_handle_open(path, mode) }.unwrap();
+    }
 }
 
-pub unsafe fn global_client() -> &'static Client {
+pub fn global_client() -> &'static Client {
     static CLIENT: LazyLock<Client> = LazyLock::new(|| Client::from_env());
     &CLIENT
 }

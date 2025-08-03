@@ -29,7 +29,7 @@ unsafe fn handle_posix_spawn(
     struct AssertSend<T>(T);
     unsafe impl<T> Send for AssertSend<T> {}
 
-    let client = unsafe { global_client() };
+    let client = global_client();
     let result = unsafe {
         client.handle_spawn::<c_int>(
             find_in_path,

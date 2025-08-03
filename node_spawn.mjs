@@ -3,6 +3,7 @@ import fs from 'node:fs'
 
 cp.execFileSync('/bin/cat', ['mise.toml'], { stdio: 'inherit'});
 
-fs.readFileSync('mise.toml233');
+// fs.readFileSync('mise.toml233');
 
+// fs.readdirSync('.')
 

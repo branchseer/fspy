@@ -85,6 +85,12 @@ pub trait ToAccessMode {
     unsafe fn to_access_mode(self) -> AccessMode;
 }
 
+impl ToAccessMode for AccessMode {
+    unsafe fn to_access_mode(self) -> AccessMode {
+        self
+    }
+}
+
 pub struct OpenFlags(pub c_int);
 impl ToAccessMode for OpenFlags {    
     unsafe fn to_access_mode(self) -> AccessMode {
