@@ -3,11 +3,11 @@ use std::{
     ptr::{null, null_mut},
 };
 
-use fspy_shared_unix::cmdinfo::CommandInfo;
+use fspy_shared_unix::exec::Exec;
 use bstr::{BStr, BString, ByteSlice};
 
 #[derive(Clone, Copy)]
-pub struct RawCommand {
+pub struct RawExec {
     pub prog: *const libc::c_char,
     pub argv: *const *const libc::c_char,
     pub envp: *const *const libc::c_char,
@@ -16,7 +16,7 @@ pub struct RawCommand {
 // unsafe impl Send for RawCommand {}
 // unsafe impl Sync for RawCommand {}
 
-impl RawCommand {
+impl RawExec {
     unsafe fn collect_c_str_array<T>(
         strs: *const *const libc::c_char,
         mut map_fn: impl FnMut(&BStr) -> T,
@@ -54,7 +54,7 @@ impl RawCommand {
         f(ptr_vec.as_ptr())
     }
 
-    pub unsafe fn into_command<'a>(self) -> CommandInfo {
+    pub unsafe fn into_command<'a>(self) -> Exec {
         let program = unsafe { CStr::from_ptr(self.prog) }
             .to_bytes()
             .as_bstr()
@@ -75,13 +75,13 @@ impl RawCommand {
             })
         };
 
-        CommandInfo {
+        Exec {
             program,
             args,
             envs,
         }
     }
-    pub fn from_command<R>(cmd: CommandInfo, f: impl FnOnce(RawCommand) -> R) -> R {
+    pub fn from_command<R>(cmd: Exec, f: impl FnOnce(RawExec) -> R) -> R {
         let envs: Vec<BString> = cmd
             .envs
             .into_iter()
@@ -97,7 +97,7 @@ impl RawCommand {
 
         Self::to_c_str(cmd.program, |prog| {
             Self::to_c_str_array(cmd.args, |argv| {
-                Self::to_c_str_array(envs, |envp| f(RawCommand { prog, argv, envp }))
+                Self::to_c_str_array(envs, |envp| f(RawExec { prog, argv, envp }))
             })
         })
     }

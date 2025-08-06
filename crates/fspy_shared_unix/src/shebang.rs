@@ -14,7 +14,7 @@ fn is_whitespace(c: u8) -> bool {
     c == b' ' || c == b'\t'
 }
 
-pub trait FileSystem {
+pub trait ShebangParseFileSystem {
     type Error;
     fn peek_executable(&self, path: &Path, buf: &mut [u8]) -> Result<usize, Self::Error>;
     fn format_error(&self) -> Self::Error;
@@ -23,7 +23,7 @@ pub trait FileSystem {
 #[derive(Default, Debug)]
 pub struct NixFileSystem(());
 
-impl FileSystem for NixFileSystem {
+impl ShebangParseFileSystem for NixFileSystem {
     type Error = nix::Error;
 
     fn peek_executable(&self, path: &Path, buf: &mut [u8]) -> Result<usize, Self::Error> {
@@ -63,7 +63,7 @@ impl Default for ParseShebangOptions {
     }
 }
 
-pub fn parse_shebang<FS: FileSystem>(
+pub fn parse_shebang<FS: ShebangParseFileSystem>(
     fs: &FS,
     path: &Path,
     options: ParseShebangOptions,

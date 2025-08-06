@@ -3,7 +3,7 @@ use std::thread;
 use libc::{c_char, c_int};
 
 use crate::{
-    client::{global_client, raw_cmd::RawCommand},
+    client::{global_client, raw_exec::RawExec},
     macros::intercept,
 };
 
@@ -33,7 +33,7 @@ unsafe fn handle_posix_spawn(
     let result = unsafe {
         client.handle_spawn::<c_int>(
             find_in_path,
-            RawCommand {
+            RawExec {
                 prog: file,
                 argv: argv.cast(),
                 envp: envp.cast(),

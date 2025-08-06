@@ -1,7 +1,7 @@
 use libc::{c_char, c_int};
 
 use crate::{
-    client::{global_client, raw_cmd::RawCommand},
+    client::{global_client, raw_exec::RawExec},
     macros::intercept,
 };
 
@@ -15,7 +15,7 @@ fn handle_exec(
     let result = unsafe {
         client.handle_spawn(
             find_in_path,
-            RawCommand { prog, argv, envp },
+            RawExec { prog, argv, envp },
             |raw_command, pre_spawn| {
                 if let Some(mut pre_spawn) = pre_spawn {
                     pre_spawn.run()?

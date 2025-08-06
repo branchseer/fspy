@@ -1,3 +1,3 @@
-use fspy_shared_unix::cmdinfo::CommandInfo;
+use fspy_shared_unix::exec::Exec;
 
 

@@ -11,7 +11,7 @@ use std::{
 };
 
 #[cfg(unix)]
-use fspy_shared_unix::cmdinfo::CommandInfo;
+use fspy_shared_unix::exec::Exec;
 use tokio::process::Command as TokioCommand;
 
 #[derive(Debug)]
@@ -32,7 +32,7 @@ pub struct Command {
 
 impl Command {
     #[cfg(unix)]
-    pub fn info(&self) -> CommandInfo {
+    pub fn info(&self) -> Exec {
         use bstr::{BString, ByteSlice as _};
         use std::{
             iter::once,
@@ -44,7 +44,7 @@ impl Command {
                 .unwrap_or_else(|| self.program.clone())
                 .into_vec(),
         );
-        CommandInfo {
+        Exec {
             program: self.program.as_bytes().into(),
             args: once(arg0)
                 .chain(
@@ -62,7 +62,7 @@ impl Command {
     }
 
     #[cfg(unix)]
-    pub fn set_info(&mut self, mut info: CommandInfo) {
+    pub fn set_info(&mut self, mut info: Exec) {
         use std::os::unix::ffi::OsStringExt;
 
         self.program = OsString::from_vec(info.program.into());

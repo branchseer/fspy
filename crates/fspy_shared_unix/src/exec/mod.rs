@@ -1,22 +1,22 @@
-mod raw;
-
 use bstr::{BStr, BString};
+use which::sys::Sys;
 
 use std::{ffi::OsStr, iter::once, mem::replace, os::unix::ffi::OsStrExt, path::Path};
 
-use crate::shebang::NixFileSystem;
+use crate::shebang::{NixFileSystem, ParseShebangOptions, ShebangParseFileSystem};
 
 use super::shebang::parse_shebang;
 
 #[derive(Debug)]
-pub struct CommandInfo {
+pub struct Exec {
     pub program: BString,
     pub args: Vec<BString>,
     /// vec of (name, value). value is None when the entry in environ doesn't contain a `=` character.
     pub envs: Vec<(BString, Option<BString>)>,
 }
 
-impl CommandInfo {
+
+impl Exec {
     pub fn parse_shebang(&mut self) -> nix::Result<()> {
         // TODO: collect path accesses in fs
         if let Some(shebang) = parse_shebang(

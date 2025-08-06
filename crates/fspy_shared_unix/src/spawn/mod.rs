@@ -15,7 +15,7 @@ use crate::open_exec::open_executable;
 use crate::payload::PAYLOAD_ENV_NAME;
 
 use crate::{
-    cmdinfo::{CommandInfo, ensure_env},
+    exec::{Exec, ensure_env},
     payload::EncodedPayload,
 };
 
@@ -29,7 +29,7 @@ impl PreSpawn {
 }
 
 pub fn handle_spawn<'a>(
-    command: &mut CommandInfo,
+    command: &mut Exec,
     find_in_path: bool,
     encoded_payload: &'a EncodedPayload,
 ) -> nix::Result<Option<PreSpawn>> {

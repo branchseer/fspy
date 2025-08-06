@@ -1,5 +1,5 @@
 pub mod convert;
-pub mod raw_cmd;
+pub mod raw_exec;
 
 use std::{
     borrow::Cow,
@@ -39,7 +39,7 @@ use nix::{
     unistd::{Pid, ftruncate, getpid},
 };
 use passfd::FdPassingExt;
-use raw_cmd::RawCommand;
+use raw_exec::RawExec;
 use thread_local::ThreadLocal;
 
 struct ShmCursor {
@@ -157,12 +157,12 @@ impl Client {
     pub unsafe fn handle_spawn<R>(
         &self,
         find_in_path: bool,
-        raw_command: RawCommand,
-        f: impl FnOnce(RawCommand, Option<PreSpawn>) -> nix::Result<R>,
+        raw_command: RawExec,
+        f: impl FnOnce(RawExec, Option<PreSpawn>) -> nix::Result<R>,
     ) -> nix::Result<R> {
         let mut cmd_info = unsafe { raw_command.into_command() };
         let pre_spawn = handle_spawn(&mut cmd_info, find_in_path, &self.encoded_payload)?;
-        RawCommand::from_command(cmd_info, |raw_command| f(raw_command, pre_spawn))
+        RawExec::from_command(cmd_info, |raw_command| f(raw_command, pre_spawn))
     }
 
     pub unsafe fn try_handle_open(
