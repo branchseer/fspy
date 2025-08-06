@@ -4,7 +4,11 @@
 	"name": "Rust",
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
 	"image": "mcr.microsoft.com/vscode/devcontainers/base:ubuntu-22.04",
-	"postCreateCommand": "rustup show && mise trust && mise install && mkdir -p ~/.config/fish && echo 'mise activate fish --shims | source' >> ~/.config/fish/config.fish",
+	"updateContentCommand": {
+		"systemPackages": "sudo apt-get update -y && sudo apt-get install -y pkg-config libssl-dev",
+		"rustToolchain": "rustup show",
+		"mise": "mise trust && mise install && mkdir -p ~/.config/fish && echo 'mise activate fish --shims | source' >> ~/.config/fish/config.fish"
+	},
 	"features": {
 		"ghcr.io/devcontainers/features/rust:1": {},
 		"ghcr.io/devcontainers-extra/features/mise:1": {},
@@ -27,7 +31,6 @@
 			}
 		}
 	}
-
 	// Use 'mounts' to make the cargo cache persistent in a Docker Volume.
 	// "mounts": [
 	// 	{
@@ -36,19 +39,14 @@
 	// 		"type": "volume"
 	// 	}
 	// ]
-
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
-
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
-
 	// Use 'postCreateCommand' to run commands after the container is created.
 	// "postCreateCommand": "rustc --version",
-
 	// Configure tool-specific properties.
 	// "customizations": {},
-
 	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
 	// "remoteUser": "root"
 }
