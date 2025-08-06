@@ -67,8 +67,8 @@ macro_rules! intercept_inner {
             use super::*;
             pub unsafe fn original() -> $fn_sig {
                 static LAZY: std::sync::LazyLock<$fn_sig> = std::sync::LazyLock::new(|| unsafe {
-                    ::core::mem::transmute_copy(&libc::dlsym(
-                        libc::RTLD_NEXT,
+                    ::core::mem::transmute(::libc::dlsym(
+                        ::libc::RTLD_NEXT,
                         ::core::concat!(::core::stringify!($name), "\0").as_ptr().cast(),
                     ))
                 });
