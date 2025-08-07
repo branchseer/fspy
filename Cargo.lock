@@ -627,9 +627,11 @@ dependencies = [
  "bincode",
  "bstr",
  "elf",
+ "libc",
  "memmap2",
  "nix",
  "seccomp_unotify",
+ "tempfile",
  "which 8.0.0",
 ]
 
