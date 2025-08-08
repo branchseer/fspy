@@ -1,5 +1,6 @@
 use std::thread;
 
+use fspy_shared_unix::exec::ExecResolveConfig;
 use libc::{c_char, c_int};
 
 use crate::{
@@ -17,7 +18,7 @@ type PosixSpawnFn = unsafe extern "C" fn(
 ) -> libc::c_int;
 
 unsafe fn handle_posix_spawn(
-    find_in_path: bool,
+    config: ExecResolveConfig,
     original: PosixSpawnFn,
     pid: *mut libc::pid_t,
     file: *const c_char,
@@ -32,7 +33,7 @@ unsafe fn handle_posix_spawn(
     let client = global_client();
     let result = unsafe {
         client.handle_spawn::<c_int>(
-            find_in_path,
+            config,
             RawExec {
                 prog: file,
                 argv: argv.cast(),
@@ -73,7 +74,6 @@ unsafe fn handle_posix_spawn(
     }
 }
 
-
 intercept!(posix_spawnp(64): PosixSpawnFn);
 unsafe extern "C" fn posix_spawnp(
     pid: *mut libc::pid_t,
@@ -83,7 +83,18 @@ unsafe extern "C" fn posix_spawnp(
     argv: *const *mut c_char,
     envp: *const *mut c_char,
 ) -> libc::c_int {
-   unsafe { handle_posix_spawn(true, posix_spawnp::original(), pid, file, file_actions, attrp, argv, envp) }
+    unsafe {
+        handle_posix_spawn(
+            ExecResolveConfig::search_path_disabled(),
+            posix_spawnp::original(),
+            pid,
+            file,
+            file_actions,
+            attrp,
+            argv,
+            envp,
+        )
+    }
 }
 
 intercept!(posix_spawn(64): PosixSpawnFn);
@@ -95,5 +106,16 @@ unsafe extern "C" fn posix_spawn(
     argv: *const *mut c_char,
     envp: *const *mut c_char,
 ) -> libc::c_int {
-   unsafe { handle_posix_spawn(false, posix_spawn::original(), pid, file, file_actions, attrp, argv, envp) }
+    unsafe {
+        handle_posix_spawn(
+            ExecResolveConfig::search_path_enabled(None),
+            posix_spawn::original(),
+            pid,
+            file,
+            file_actions,
+            attrp,
+            argv,
+            envp,
+        )
+    }
 }

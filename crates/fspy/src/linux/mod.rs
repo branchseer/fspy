@@ -5,18 +5,20 @@
 mod syscall_handler;
 
 use fspy_shared_unix::{
+    exec::ExecResolveConfig,
     payload::{Payload, encode_payload},
     spawn::handle_exec,
 };
 use memmap2::Mmap;
 use seccomp_unotify::supervisor::supervise;
 use std::{
+    cell::RefCell,
     ffi::{CString, OsStr, OsString},
     fs::File,
     io::{self, Write},
     iter,
     mem::ManuallyDrop,
-    ops::{ControlFlow, Deref},
+    ops::{ControlFlow, Deref, DerefMut},
     os::{
         fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
         unix::{
@@ -129,7 +131,6 @@ impl PathAccessIterable {
     }
 }
 
-
 // https://github.com/nodejs/node/blob/5794e644b724c6c6cac02d306d87a4d6b78251e5/deps/uv/src/unix/core.c#L803-L808
 fn duplicate_until_safe(mut fd: OwnedFd) -> io::Result<OwnedFd> {
     let mut fds: Vec<OwnedFd> = vec![];
@@ -143,7 +144,6 @@ fn duplicate_until_safe(mut fd: OwnedFd) -> io::Result<OwnedFd> {
 }
 
 pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild> {
-
     let (shm_fd_sender, shm_fd_receiver) = UnixStream::pair()?;
 
     let shm_fd_sender = shm_fd_sender.into_std()?;
@@ -170,9 +170,18 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
     let preload_lib_memfd = Arc::clone(&command.spy_inner.preload_lib_memfd);
     let mut supervisor_pre_exec = supervisor.pre_exec;
 
-    let mut command_info = command.info();
-    let mut pre_exec = handle_exec(&mut command_info, true, &encoded_payload)?;
-    command.set_info(command_info);
+    let mut exec = command.get_exec();
+    let exec_path_accesses = RefCell::new(PathAccessArena::default());
+    let mut pre_exec = handle_exec(
+        &mut exec,
+        ExecResolveConfig::search_path_enabled(None),
+        &encoded_payload,
+        |path_access| {
+            exec_path_accesses.borrow_mut().add(path_access);
+        },
+    )?;
+    let exec_path_accesses = exec_path_accesses.into_inner();
+    command.set_exec(exec);
 
     let mut tokio_command = command.into_tokio_command();
 
@@ -196,9 +205,8 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
 
     let arenas_future = async move {
         let handlers = supervisor.handling_loop.await?;
-        let arenas = handlers
-            .into_iter()
-            .map(|handler| handler.arena)
+        let arenas = std::iter::once(exec_path_accesses)
+            .chain(handlers.into_iter().map(|handler| handler.arena))
             .collect::<Vec<_>>();
         io::Result::Ok(arenas)
     };
@@ -216,7 +224,6 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
                     }
                 }
             };
-            // let mmap = unsafe { Mmap::map(&fd)? };
             shm_fds.push(shm_fd);
         }
         io::Result::Ok(shm_fds)

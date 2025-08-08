@@ -7,7 +7,10 @@ use std::{
     ffi::CStr,
     io,
     ops::DerefMut as _,
-    os::fd::{AsRawFd, RawFd},
+    os::{
+        fd::{AsRawFd, RawFd},
+        unix::ffi::OsStrExt,
+    },
     sync::{
         LazyLock,
         atomic::{AtomicU8, AtomicU16, AtomicUsize, Ordering, fence},
@@ -140,6 +143,15 @@ impl Client {
     }
 
     fn send(&self, path_access: PathAccess<'_>) -> anyhow::Result<()> {
+        if cfg!(target_os = "linux")
+            && path_access
+                .path
+                .as_os_str()
+                .as_bytes()
+                .starts_with(b"/dev/shm/")
+        {
+            return Ok(());
+        };
         let mut size_writer = SizeWriter::default();
         encode_into_writer(&path_access, &mut size_writer, BINCODE_CONFIG)?;
 
@@ -160,19 +172,19 @@ impl Client {
     pub unsafe fn handle_spawn<R>(
         &self,
         config: ExecResolveConfig,
-        raw_command: RawExec,
+        raw_exec: RawExec,
         f: impl FnOnce(RawExec, Option<PreExec>) -> nix::Result<R>,
     ) -> nix::Result<R> {
-        let mut cmd_info = unsafe { raw_command.into_command() };
+        let mut cmd_info = unsafe { raw_exec.to_exec() };
         let pre_exec = handle_exec(
             &mut cmd_info,
             config,
             &self.encoded_payload,
             |path_access| {
-                unsafe { self.handle_open(MaybeRelative(path_access.path), path_access.mode) };
+                self.send(path_access).unwrap();
             },
         )?;
-        RawExec::from_command(cmd_info, |raw_command| f(raw_command, pre_exec))
+        RawExec::from_exec(cmd_info, |raw_command| f(raw_command, pre_exec))
     }
 
     pub unsafe fn try_handle_open(
@@ -183,9 +195,6 @@ impl Client {
         let mode = unsafe { mode.to_access_mode() };
         let () = unsafe {
             path.to_absolute_path(|abs_path| {
-                if cfg!(target_os = "linux") && abs_path.starts_with(b"/dev/shm/") {
-                    return Ok(Ok(()));
-                };
                 Ok(self.send(PathAccess {
                     mode,
                     path: abs_path.into(),

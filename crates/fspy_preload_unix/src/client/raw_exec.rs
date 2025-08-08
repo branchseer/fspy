@@ -13,9 +13,6 @@ pub struct RawExec {
     pub envp: *const *const libc::c_char,
 }
 
-// unsafe impl Send for RawCommand {}
-// unsafe impl Sync for RawCommand {}
-
 impl RawExec {
     unsafe fn collect_c_str_array<T>(
         strs: *const *const libc::c_char,
@@ -54,7 +51,7 @@ impl RawExec {
         f(ptr_vec.as_ptr())
     }
 
-    pub unsafe fn into_command<'a>(self) -> Exec {
+    pub unsafe fn to_exec<'a>(self) -> Exec {
         let program = unsafe { CStr::from_ptr(self.prog) }
             .to_bytes()
             .as_bstr()
@@ -81,7 +78,7 @@ impl RawExec {
             envs,
         }
     }
-    pub fn from_command<R>(cmd: Exec, f: impl FnOnce(RawExec) -> R) -> R {
+    pub fn from_exec<R>(cmd: Exec, f: impl FnOnce(RawExec) -> R) -> R {
         let envs: Vec<BString> = cmd
             .envs
             .into_iter()

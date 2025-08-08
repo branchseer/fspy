@@ -1,10 +1,10 @@
-
-use std::cell::RefCell;
+use std::{cell::RefCell, path::Path};
 
 use crate::PathAccess;
-use bumpalo::Bump;
-use blink_alloc::SyncBlinkAlloc;
 use allocator_api2::vec::Vec;
+use blink_alloc::SyncBlinkAlloc;
+use bumpalo::Bump;
+use fspy_shared::ipc::NativeStr;
 use thread_local::ThreadLocal;
 
 #[ouroboros::self_referencing]
@@ -19,15 +19,24 @@ pub struct PathAccessArena {
 
 impl Default for PathAccessArena {
     fn default() -> Self {
-       Self::new(Bump::new(), |bump| {
-            Vec::new_in(bump)
-       })
+        Self::new(Bump::new(), |bump| Vec::new_in(bump))
     }
 }
 
-unsafe impl Send for PathAccessArena {
-    
+impl PathAccessArena {
+    pub fn add(&mut self, access: PathAccess<'_>) {
+        self.with_mut(|fields| {
+            let path = access.path.clone_in(fields.bump);
+            let path_access = PathAccess {
+                mode: access.mode,
+                path,
+            };
+            fields.accesses.push(path_access);
+        });
+    }
 }
+
+unsafe impl Send for PathAccessArena {}
 
 // impl PathAccessArena {
 //     pub fn as_slice(&self) -> &[PathAccess<'_>] {

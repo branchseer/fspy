@@ -17,31 +17,20 @@ pub struct SyscallHandler {
 impl SyscallHandler {
     fn openat(&mut self, (_, path): (Ignored, CStrPtr)) -> io::Result<()> {
         path.read_with_buf::<PATH_MAX, _, _>(|path| {
-            self.arena.with_accesses_mut(|accesses| {
-                // TODO(perf): read path directly into arena-allocated buf
-                let path = accesses.allocator().alloc_slice_copy(path);
-                let path_access = PathAccess {
-                    mode: AccessMode::Read,
-                    path: NativeStr::from_bytes(path),
-                };
-                accesses.push(path_access);
+            self.arena.add(PathAccess {
+                mode: AccessMode::Read,
+                path: NativeStr::from_bytes(path),
             });
             Ok(())
         })?;
         Ok(())
     }
     fn getdents64(&mut self, (fd,): (Fd,)) -> io::Result<()> {
-        self.arena.with_accesses_mut(|acceeses| {
-            let path = acceeses
-                .allocator()
-                .alloc_slice_copy(fd.get_path()?.as_bytes());
-            let path_access = PathAccess {
-                mode: AccessMode::ReadDir,
-                path: NativeStr::from_bytes(path),
-            };
-            acceeses.push(path_access);
-            io::Result::Ok(())
-        })?;
+        let path = fd.get_path()?;
+        self.arena.add(PathAccess {
+            mode: AccessMode::ReadDir,
+            path: NativeStr::from_bytes(path.as_bytes()),
+        });
         Ok(())
     }
 }

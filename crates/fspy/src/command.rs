@@ -32,7 +32,7 @@ pub struct Command {
 
 impl Command {
     #[cfg(unix)]
-    pub fn info(&self) -> Exec {
+    pub fn get_exec(&self) -> Exec {
         use bstr::{BString, ByteSlice as _};
         use std::{
             iter::once,
@@ -62,17 +62,17 @@ impl Command {
     }
 
     #[cfg(unix)]
-    pub fn set_info(&mut self, mut info: Exec) {
+    pub fn set_exec(&mut self, mut exec: Exec) {
         use std::os::unix::ffi::OsStringExt;
 
-        self.program = OsString::from_vec(info.program.into());
-        self.arg0 = Some(OsString::from_vec(info.args.remove(0).into()));
-        self.args = info
+        self.program = OsString::from_vec(exec.program.into());
+        self.arg0 = Some(OsString::from_vec(exec.args.remove(0).into()));
+        self.args = exec
             .args
             .into_iter()
             .map(|arg| OsString::from_vec(arg.into()))
             .collect();
-        self.envs = info
+        self.envs = exec
             .envs
             .into_iter()
             .map(|(name, value)| {

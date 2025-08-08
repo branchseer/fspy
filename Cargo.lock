@@ -542,6 +542,7 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "csv-async",
+ "ctor",
  "derive-where",
  "event_iterator",
  "flate2",

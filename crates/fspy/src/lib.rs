@@ -35,6 +35,7 @@ use tokio::process::Child;
 use bumpalo::Bump;
 pub use fspy_shared::ipc::PathAccess;
 pub use fspy_shared::ipc::AccessMode;
+pub use os_impl::PathAccessIterable;
 
 
 pub struct TrackedChild {

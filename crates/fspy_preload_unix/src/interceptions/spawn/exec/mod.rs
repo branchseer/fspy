@@ -1,12 +1,29 @@
+mod with_argv;
+
+use fspy_shared_unix::exec::ExecResolveConfig;
 use libc::{c_char, c_int};
+use with_argv::with_argv;
 
 use crate::{
     client::{global_client, raw_exec::RawExec},
     macros::intercept,
 };
 
+#[cfg(target_os = "macos")]
+pub unsafe fn environ() -> *const *const c_char {
+    unsafe { *(libc::_NSGetEnviron().cast()) }
+}
+
+#[cfg(target_os = "linux")]
+pub unsafe fn environ() -> *const *const c_char {
+    unsafe extern "C" {
+        static environ: *const *const c_char;
+    }
+    unsafe { environ }
+}
+
 fn handle_exec(
-    find_in_path: bool,
+    config: ExecResolveConfig,
     prog: *const libc::c_char,
     argv: *const *const libc::c_char,
     envp: *const *const libc::c_char,
@@ -14,7 +31,7 @@ fn handle_exec(
     let client = global_client();
     let result = unsafe {
         client.handle_spawn(
-            find_in_path,
+            config,
             RawExec { prog, argv, envp },
             |raw_command, pre_exec| {
                 if let Some(mut pre_exec) = pre_exec {
@@ -47,16 +64,28 @@ unsafe extern "C" fn execve(
     argv: *const *const libc::c_char,
     envp: *const *const libc::c_char,
 ) -> libc::c_int {
-    handle_exec(false, prog, argv, envp)
+    handle_exec(ExecResolveConfig::search_path_disabled(), prog, argv, envp)
 }
 
 intercept!(execvp(64): unsafe extern "C" fn(
     prog: *const libc::c_char,
     argv: *const *const libc::c_char,
 ) -> c_int);
-unsafe extern "C" fn execvp(c: *const c_char, argv: *const *const c_char) -> c_int {
-    unsafe { execvp::original()(c, argv) }
+unsafe extern "C" fn execvp(prog: *const c_char, argv: *const *const c_char) -> c_int {
+    let _ = execvp::original; // expect original to be unused
+    handle_exec(
+        ExecResolveConfig::search_path_enabled(None),
+        prog,
+        argv,
+        unsafe { environ() },
+    )
 }
+
+// intercept!(execl(64): unsafe extern "C" fn(path: *const c_char, arg0: *const c_char, ...) -> c_int);
+// unsafe extern "C" fn execl(path: *const c_char, arg0: *const c_char, mut valist: ...) -> c_int {
+//     let _ = execl::original; // expect original to be unused
+//     with_argv(valist, arg0, |args, _remaining| 0)
+// }
 
 // unsafe extern "C" fn execveat(
 //     dirfd: c_int,
@@ -70,4 +99,3 @@ unsafe extern "C" fn execvp(c: *const c_char, argv: *const *const c_char) -> c_i
 // }
 
 // TODO: execveat/fexecve
-

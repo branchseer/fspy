@@ -1,18 +1,16 @@
-use std::{ffi::OsStr, path::Path};
 #[cfg(unix)]
 use std::sync::Arc;
-use std::{
-    borrow::Cow,
-    fmt::{Debug},
-};
+use std::{borrow::Cow, fmt::Debug};
+use std::{ffi::OsStr, mem::MaybeUninit, path::Path};
 
+use allocator_api2::alloc::Allocator;
 #[cfg(unix)]
 use bincode::Decode;
 use bincode::{BorrowDecode, Encode};
 use bstr::BStr;
 
 /// Similar to OsStr, but requires no copy for encode/decode
-#[derive(Encode, BorrowDecode, Clone, Copy)]
+#[derive(Encode, BorrowDecode, Clone, Copy, PartialEq, Eq)]
 pub struct NativeStr<'a> {
     #[cfg(windows)]
     is_wide: bool,
@@ -20,15 +18,34 @@ pub struct NativeStr<'a> {
 }
 
 impl<'a> From<&'a Path> for NativeStr<'a> {
-
     #[cfg(unix)]
     fn from(value: &'a Path) -> Self {
         use std::os::unix::ffi::OsStrExt as _;
         Self::from_bytes(value.as_os_str().as_bytes())
     }
 }
+impl<'a> From<&'a str> for NativeStr<'a> {
+    #[cfg(unix)]
+    fn from(value: &'a str) -> Self {
+        Self::from_bytes(value.as_bytes())
+    }
+}
 
 impl<'a> NativeStr<'a> {
+    pub fn clone_in<'new_alloc, A>(&self, alloc: &'new_alloc A) -> NativeStr<'new_alloc>
+    where
+        &'new_alloc A: Allocator,
+    {
+        use allocator_api2::vec::Vec;
+        let mut data = Vec::<u8, _>::with_capacity_in(self.data.len(), alloc);
+        data.extend_from_slice(self.data);
+        let data = data.leak::<'new_alloc>();
+        NativeStr {
+            data,
+            #[cfg(windows)]
+            is_wide: self.is_wide,
+        }
+    }
     pub fn from_bytes(bytes: &'a [u8]) -> Self {
         Self {
             #[cfg(windows)]
@@ -82,7 +99,7 @@ impl<'a> NativeStr<'a> {
     }
 }
 
-impl <'a> From<&'a BStr> for NativeStr<'a> {
+impl<'a> From<&'a BStr> for NativeStr<'a> {
     fn from(value: &'a BStr) -> Self {
         Self::from_bytes(&value)
     }
