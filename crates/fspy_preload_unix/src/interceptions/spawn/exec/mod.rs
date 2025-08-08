@@ -32,7 +32,7 @@ fn handle_exec(
 ) -> libc::c_int {
     let client = global_client().expect("exec unexpectedly called before client initialized in ctor");
     let result = unsafe {
-        client.handle_spawn(
+        client.handle_exec(
             config,
             RawExec { prog, argv, envp },
             |raw_command, pre_exec| {

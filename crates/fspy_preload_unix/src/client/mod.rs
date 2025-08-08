@@ -80,17 +80,6 @@ impl Client {
             tls_shm_cursor: ThreadLocal::new(),
         }
     }
-    // pub unsafe fn handle_exec(
-    //     &self,
-    //     alloc: StackAllocator<'_>,
-    //     raw_command: &mut RawCommand,
-    // ) -> nix::Result<()> {
-    //     let mut cmd = unsafe { raw_command.into_command(alloc) };
-    //     inject(alloc, &mut cmd, &self.payload_with_str)?;
-    //     *raw_command = RawCommand::from_command(alloc, &cmd);
-    //     Ok(())
-    // }
-
     fn new_shm(&self) -> io::Result<ShmCursor> {
         let shm_name = format!(
             "/fspy_shm_{}_{}",
@@ -166,7 +155,7 @@ impl Client {
         Ok(())
     }
 
-    pub unsafe fn handle_spawn<R>(
+    pub unsafe fn handle_exec<R>(
         &self,
         config: ExecResolveConfig,
         raw_exec: RawExec,
