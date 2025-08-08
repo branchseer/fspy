@@ -6,7 +6,7 @@ mod syscall_handler;
 
 use fspy_shared_unix::{
     payload::{Payload, encode_payload},
-    spawn::handle_spawn,
+    spawn::handle_exec,
 };
 use memmap2::Mmap;
 use seccomp_unotify::supervisor::supervise;
@@ -171,7 +171,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
     let mut supervisor_pre_exec = supervisor.pre_exec;
 
     let mut command_info = command.info();
-    let mut pre_spawn = handle_spawn(&mut command_info, true, &encoded_payload)?;
+    let mut pre_exec = handle_exec(&mut command_info, true, &encoded_payload)?;
     command.set_info(command_info);
 
     let mut tokio_command = command.into_tokio_command();
@@ -181,8 +181,8 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
             unset_fd_flag(preload_lib_memfd.as_fd(), FdFlag::FD_CLOEXEC)?;
             unset_fd_flag(shm_fd_sender.as_fd(), FdFlag::FD_CLOEXEC)?;
             supervisor_pre_exec.run()?;
-            if let Some(pre_spawn) = &mut pre_spawn {
-                pre_spawn.run()?;
+            if let Some(pre_exec) = &mut pre_exec {
+                pre_exec.run()?;
             }
             Ok(())
         });

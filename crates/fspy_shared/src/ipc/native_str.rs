@@ -1,4 +1,4 @@
-use std::ffi::OsStr;
+use std::{ffi::OsStr, path::Path};
 #[cfg(unix)]
 use std::sync::Arc;
 use std::{
@@ -17,6 +17,15 @@ pub struct NativeStr<'a> {
     #[cfg(windows)]
     is_wide: bool,
     data: &'a [u8],
+}
+
+impl<'a> From<&'a Path> for NativeStr<'a> {
+
+    #[cfg(unix)]
+    fn from(value: &'a Path) -> Self {
+        use std::os::unix::ffi::OsStrExt as _;
+        Self::from_bytes(value.as_os_str().as_bytes())
+    }
 }
 
 impl<'a> NativeStr<'a> {

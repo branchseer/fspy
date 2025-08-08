@@ -16,9 +16,9 @@ fn handle_exec(
         client.handle_spawn(
             find_in_path,
             RawExec { prog, argv, envp },
-            |raw_command, pre_spawn| {
-                if let Some(mut pre_spawn) = pre_spawn {
-                    pre_spawn.run()?
+            |raw_command, pre_exec| {
+                if let Some(mut pre_exec) = pre_exec {
+                    pre_exec.run()?
                 };
                 Ok(execve::original()(
                     raw_command.prog,

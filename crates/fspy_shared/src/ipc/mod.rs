@@ -1,7 +1,7 @@
-pub mod shm;
 mod native_str;
+pub mod shm;
 
-use bincode::{config::Configuration, BorrowDecode, Encode};
+use bincode::{BorrowDecode, Encode, config::Configuration};
 pub use native_str::NativeStr;
 
 #[cfg(unix)]
@@ -21,5 +21,20 @@ pub enum AccessMode {
 pub struct PathAccess<'a> {
     pub mode: AccessMode,
     pub path: NativeStr<'a>,
-    // pub dir: Option<NativeStr<'a>>,
+    // TODO: add follow_symlinks (O_NOFOLLOW)
+}
+
+impl<'a> PathAccess<'a> {
+    pub fn read(path: impl Into<NativeStr<'a>>) -> Self {
+        Self {
+            mode: AccessMode::Read,
+            path: path.into(),
+        }
+    }
+    pub fn read_dir(path: impl Into<NativeStr<'a>>) -> Self {
+        Self {
+            mode: AccessMode::ReadDir,
+            path: path.into(),
+        }
+    }
 }

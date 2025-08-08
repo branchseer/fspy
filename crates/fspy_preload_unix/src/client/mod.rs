@@ -22,8 +22,9 @@ use bincode::{
 use bstr::BStr;
 use fspy_shared::ipc::{AccessMode, BINCODE_CONFIG, NativeStr, NativeString, PathAccess};
 use fspy_shared_unix::{
+    exec::ExecResolveConfig,
     payload::{EncodedPayload, decode_payload_from_env},
-    spawn::{PreSpawn, handle_spawn},
+    spawn::{PreExec, handle_exec},
 };
 
 use convert::{ToAbsolutePath, ToAccessMode};
@@ -41,6 +42,8 @@ use nix::{
 use passfd::FdPassingExt;
 use raw_exec::RawExec;
 use thread_local::ThreadLocal;
+
+use crate::client::convert::MaybeRelative;
 
 struct ShmCursor {
     mmap_mut: MmapMut,
@@ -156,13 +159,20 @@ impl Client {
 
     pub unsafe fn handle_spawn<R>(
         &self,
-        find_in_path: bool,
+        config: ExecResolveConfig,
         raw_command: RawExec,
-        f: impl FnOnce(RawExec, Option<PreSpawn>) -> nix::Result<R>,
+        f: impl FnOnce(RawExec, Option<PreExec>) -> nix::Result<R>,
     ) -> nix::Result<R> {
         let mut cmd_info = unsafe { raw_command.into_command() };
-        let pre_spawn = handle_spawn(&mut cmd_info, find_in_path, &self.encoded_payload)?;
-        RawExec::from_command(cmd_info, |raw_command| f(raw_command, pre_spawn))
+        let pre_exec = handle_exec(
+            &mut cmd_info,
+            config,
+            &self.encoded_payload,
+            |path_access| {
+                unsafe { self.handle_open(MaybeRelative(path_access.path), path_access.mode) };
+            },
+        )?;
+        RawExec::from_command(cmd_info, |raw_command| f(raw_command, pre_exec))
     }
 
     pub unsafe fn try_handle_open(

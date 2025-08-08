@@ -17,7 +17,7 @@ fn is_whitespace(c: u8) -> bool {
 pub trait ShebangParseFileSystem {
     type Error;
     fn peek_executable(&self, path: &Path, buf: &mut [u8]) -> Result<usize, Self::Error>;
-    fn format_error(&self) -> Self::Error;
+    fn shebang_format_error(&self) -> Self::Error;
 }
 
 #[derive(Default, Debug)]
@@ -44,7 +44,7 @@ impl ShebangParseFileSystem for NixFileSystem {
         Ok(total_read_size)
     }
 
-    fn format_error(&self) -> Self::Error {
+    fn shebang_format_error(&self) -> Self::Error {
         // https://github.com/torvalds/linux/blob/5723cc3450bccf7f98f227b9723b5c9f6b3af1c5/fs/binfmt_script.c#L59-L80
         nix::Error::ENOEXEC
     }
@@ -82,7 +82,7 @@ pub fn parse_shebang<FS: ShebangParseFileSystem>(
     };
 
     let Some(buf) = buf.split(|ch| matches!(*ch, b'\n')).next() else {
-        return Err(fs.format_error());
+        return Err(fs.shebang_format_error());
     };
     let buf = buf.trim_ascii();
     let Some(interpreter) = buf.split(|ch| is_whitespace(*ch)).next() else {

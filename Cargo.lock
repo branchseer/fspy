@@ -627,6 +627,7 @@ dependencies = [
  "bincode",
  "bstr",
  "elf",
+ "fspy_shared",
  "libc",
  "memmap2",
  "nix",

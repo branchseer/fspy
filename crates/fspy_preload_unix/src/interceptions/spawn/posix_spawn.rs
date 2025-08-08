@@ -38,7 +38,7 @@ unsafe fn handle_posix_spawn(
                 argv: argv.cast(),
                 envp: envp.cast(),
             },
-            |raw_command, pre_spawn| {
+            |raw_command, pre_exec| {
                 let call_original = move || {
                     original(
                         pid,
@@ -49,12 +49,12 @@ unsafe fn handle_posix_spawn(
                         raw_command.envp.cast(),
                     )
                 };
-                if let Some(mut pre_spawn) = pre_spawn {
+                if let Some(mut pre_exec) = pre_exec {
                     thread::scope(move |s| {
                         let call_original = AssertSend(call_original);
                         s.spawn(move || {
                             let call_original = call_original;
-                            pre_spawn.run()?;
+                            pre_exec.run()?;
 
                             nix::Result::Ok((call_original.0)())
                         })

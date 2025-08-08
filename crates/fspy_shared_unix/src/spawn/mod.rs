@@ -1,6 +1,7 @@
 #[cfg(target_os = "linux")]
 mod elf;
 
+use fspy_shared::ipc::PathAccess;
 use memmap2::Mmap;
 use nix::unistd::getcwd;
 use seccomp_unotify::payload::SeccompPayload;
@@ -11,6 +12,7 @@ use std::path::Path;
 use std::thread;
 use which::which_in;
 
+use crate::exec::{ExecResolveConfig, real_sys_with_callback};
 use crate::open_exec::open_executable;
 use crate::payload::PAYLOAD_ENV_NAME;
 
@@ -21,33 +23,20 @@ use crate::{
 
 const LD_PRELOAD: &str = "LD_PRELOAD";
 
-pub struct PreSpawn(SeccompPayload);
-impl PreSpawn {
+pub struct PreExec(SeccompPayload);
+impl PreExec {
     pub fn run(&mut self) -> nix::Result<()> {
         install_target(&self.0)
     }
 }
 
-pub fn handle_spawn<'a>(
+pub fn handle_exec(
     command: &mut Exec,
-    find_in_path: bool,
-    encoded_payload: &'a EncodedPayload,
-) -> nix::Result<Option<PreSpawn>> {
-    if find_in_path {
-        let path = command.envs.iter().find_map(|(name, value)| {
-            if name.eq_ignore_ascii_case(b"PATH") {
-                let value = value.as_ref()?;
-                Some(OsStr::from_bytes(value))
-            } else {
-                None
-            }
-        });
-        let cwd = getcwd()?;
-        let program = which_in(OsStr::from_bytes(&command.program), path, cwd)
-            .map_err(|_| nix::Error::ENOENT)?;
-        command.program = program.into_os_string().into_vec().into();
-    }
-    command.parse_shebang()?;
+    config: ExecResolveConfig,
+    encoded_payload: &EncodedPayload,
+    on_path_access: impl Fn(PathAccess<'_>),
+) -> nix::Result<Option<PreExec>> {
+    command.resolve(&real_sys_with_callback(on_path_access), config)?;
 
     let executable_fd = open_executable(Path::new(OsStr::from_bytes(&command.program)))?;
     let executable_mmap = unsafe { Mmap::map(&executable_fd) }
@@ -68,6 +57,8 @@ pub fn handle_spawn<'a>(
         command
             .envs
             .retain(|(name, _)| name != LD_PRELOAD && name != PAYLOAD_ENV_NAME);
-        Ok(Some(PreSpawn(encoded_payload.payload.seccomp_payload.clone())))
+        Ok(Some(PreExec(
+            encoded_payload.payload.seccomp_payload.clone(),
+        )))
     }
 }
