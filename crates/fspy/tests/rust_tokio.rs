@@ -22,7 +22,8 @@ macro_rules! track_child {
                 return;
             };
             if current_id == ID {
-                $body
+                $body;
+                ::std::process::exit(0);
             }
         }
         spawn_with_id(ID)

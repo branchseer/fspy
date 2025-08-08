@@ -3,12 +3,23 @@ pub mod raw_exec;
 
 use core::panic;
 use std::{
-    borrow::Cow, cell::{Ref, RefCell}, ffi::CStr, fmt::Debug, io, ops::DerefMut as _, os::{
+    borrow::Cow,
+    cell::{Ref, RefCell},
+    ffi::CStr,
+    fmt::Debug,
+    io,
+    ops::DerefMut as _,
+    os::{
         fd::{AsRawFd, RawFd},
         unix::ffi::OsStrExt,
-    }, ptr::null, sync::{
-        atomic::{fence, AtomicU16, AtomicU8, AtomicUsize, Ordering}, LazyLock, OnceLock
-    }, thread::panicking, time::{Instant, SystemTime}
+    },
+    ptr::null,
+    sync::{
+        LazyLock, OnceLock,
+        atomic::{AtomicU8, AtomicU16, AtomicUsize, Ordering, fence},
+    },
+    thread::panicking,
+    time::{Instant, SystemTime},
 };
 
 use anyhow::Context;
@@ -161,16 +172,11 @@ impl Client {
         raw_exec: RawExec,
         f: impl FnOnce(RawExec, Option<PreExec>) -> nix::Result<R>,
     ) -> nix::Result<R> {
-        let mut cmd_info = unsafe { raw_exec.to_exec() };
-        let pre_exec = handle_exec(
-            &mut cmd_info,
-            config,
-            &self.encoded_payload,
-            |path_access| {
-                self.send(path_access).unwrap();
-            },
-        )?;
-        RawExec::from_exec(cmd_info, |raw_command| f(raw_command, pre_exec))
+        let mut exec = unsafe { raw_exec.to_exec() };
+        let pre_exec = handle_exec(&mut exec, config, &self.encoded_payload, |path_access| {
+            self.send(path_access).unwrap();
+        })?;
+        RawExec::from_exec(exec, |raw_command| f(raw_command, pre_exec))
     }
 
     pub unsafe fn try_handle_open(
@@ -190,9 +196,6 @@ impl Client {
 
         Ok(())
     }
-    pub unsafe fn handle_open(&self, path: impl ToAbsolutePath, mode: impl ToAccessMode) {
-        unsafe { self.try_handle_open(path, mode) }.unwrap();
-    }
 }
 
 static CLIENT: OnceLock<Client> = OnceLock::new();
@@ -211,7 +214,9 @@ pub unsafe fn handle_open(path: impl ToAbsolutePath, mode: impl ToAccessMode) {
 fn init_client() {
     CLIENT.set(Client::from_env()).unwrap();
     unsafe extern "C" fn reset_shm_atfork() {
-        let client = global_client().unwrap();
+        let Some(client) = global_client() else {
+            return;
+        };
         if let Some(shm_cursor) = client.tls_shm_cursor.get() {
             // Move the shm cursor to the end so that the next time it's used it will be reset.
             let mut shm_cursor = shm_cursor.borrow_mut();

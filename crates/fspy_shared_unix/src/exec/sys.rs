@@ -3,7 +3,7 @@ use std::{borrow::Cow, os::unix::ffi::OsStrExt, path::absolute};
 use fspy_shared::ipc::{AccessMode, PathAccess};
 use which::sys::{RealSys, Sys};
 
-use crate::shebang::{NixFileSystem, ShebangParseFileSystem};
+use super::shebang::{NixFileSystem, ShebangParseFileSystem};
 
 struct SysWithCallback<WhichSys, ShebangFS, F> {
     which_sys: WhichSys,

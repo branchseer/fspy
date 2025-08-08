@@ -12,6 +12,7 @@ bstr = "1.12.0"
 anyhow = "1.0.98"
 which = "8.0.0"
 fspy_shared = { workspace = true }
+stackalloc = "1.2.1"
 
 [dev-dependencies]
 tempfile = "3.13.0"

@@ -1,7 +1,10 @@
 mod sys;
+mod which;
+mod fs;
+mod shebang;
 
 use bstr::{BStr, BString};
-use which::{
+use ::which::{
     WhichConfig,
     sys::{RealSys, Sys},
 };
@@ -15,9 +18,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::shebang::{NixFileSystem, ParseShebangOptions, ShebangParseFileSystem};
+use shebang::{NixFileSystem, ParseShebangOptions, ShebangParseFileSystem};
 
-use super::shebang::parse_shebang;
+use shebang::parse_shebang;
 
 pub use sys::real_sys_with_callback;
 
@@ -63,7 +66,7 @@ pub struct Exec {
     pub envs: Vec<(BString, Option<BString>)>,
 }
 
-fn which_error_to_errno(_which_error: which::Error) -> nix::Error {
+fn which_error_to_errno(_which_error: ::which::Error) -> nix::Error {
     nix::Error::ENOENT
 }
 

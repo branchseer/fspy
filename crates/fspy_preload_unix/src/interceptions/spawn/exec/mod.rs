@@ -86,7 +86,6 @@ unsafe extern "C" fn execvp(prog: *const c_char, argv: *const *const c_char) -> 
 intercept!(execl(64): unsafe extern "C" fn(path: *const c_char, arg0: *const c_char, ...) -> c_int);
 unsafe extern "C" fn execl(path: *const c_char, arg0: *const c_char, valist: ...) -> c_int {
     let _ = execl::original; // expect original to be unused
-    eprintln!("execl");
     unsafe {
         with_argv(valist, arg0, |args, _remaining| {
             handle_exec(
