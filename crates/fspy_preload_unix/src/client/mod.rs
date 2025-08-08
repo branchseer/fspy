@@ -1,21 +1,14 @@
 pub mod convert;
 pub mod raw_exec;
 
+use core::panic;
 use std::{
-    borrow::Cow,
-    cell::{Ref, RefCell},
-    ffi::CStr,
-    io,
-    ops::DerefMut as _,
-    os::{
+    borrow::Cow, cell::{Ref, RefCell}, ffi::CStr, fmt::Debug, io, ops::DerefMut as _, os::{
         fd::{AsRawFd, RawFd},
         unix::ffi::OsStrExt,
-    },
-    sync::{
-        LazyLock,
-        atomic::{AtomicU8, AtomicU16, AtomicUsize, Ordering, fence},
-    },
-    time::{Instant, SystemTime},
+    }, ptr::null, sync::{
+        atomic::{fence, AtomicU16, AtomicU8, AtomicUsize, Ordering}, LazyLock, OnceLock
+    }, thread::panicking, time::{Instant, SystemTime}
 };
 
 use anyhow::Context;
@@ -31,7 +24,7 @@ use fspy_shared_unix::{
 };
 
 use convert::{ToAbsolutePath, ToAccessMode};
-use libc::off_t;
+use libc::{off_t, pthread_atfork};
 use memmap2::{Mmap, MmapMut};
 use nix::{
     fcntl::OFlag,
@@ -66,9 +59,14 @@ impl ShmCursor {
 
 pub struct Client {
     encoded_payload: EncodedPayload,
-    pid: Pid,
     shm_id: AtomicUsize,
     tls_shm_cursor: ThreadLocal<RefCell<ShmCursor>>,
+}
+
+impl Debug for Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Client").finish()
+    }
 }
 
 const SHM_CHUNK_SIZE: off_t = 256 * 1024;
@@ -78,7 +76,6 @@ impl Client {
         let encoded_payload = decode_payload_from_env().unwrap();
         Self {
             shm_id: AtomicUsize::new(0),
-            pid: getpid(),
             encoded_payload,
             tls_shm_cursor: ThreadLocal::new(),
         }
@@ -97,7 +94,7 @@ impl Client {
     fn new_shm(&self) -> io::Result<ShmCursor> {
         let shm_name = format!(
             "/fspy_shm_{}_{}",
-            self.pid,
+            getpid().as_raw(),
             self.shm_id.fetch_add(1, Ordering::Relaxed),
         );
         let shm_fd = shm_open(
@@ -209,7 +206,31 @@ impl Client {
     }
 }
 
-pub fn global_client() -> &'static Client {
-    static CLIENT: LazyLock<Client> = LazyLock::new(|| Client::from_env());
-    &CLIENT
+static CLIENT: OnceLock<Client> = OnceLock::new();
+
+pub fn global_client() -> Option<&'static Client> {
+    CLIENT.get()
+}
+
+pub unsafe fn handle_open(path: impl ToAbsolutePath, mode: impl ToAccessMode) {
+    if let Some(client) = global_client() {
+        unsafe { client.try_handle_open(path, mode) }.unwrap();
+    }
+}
+
+#[ctor::ctor]
+fn init_client() {
+    CLIENT.set(Client::from_env()).unwrap();
+    unsafe extern "C" fn reset_shm_atfork() {
+        let client = global_client().unwrap();
+        if let Some(shm_cursor) = client.tls_shm_cursor.get() {
+            // Move the shm cursor to the end so that the next time it's used it will be reset.
+            let mut shm_cursor = shm_cursor.borrow_mut();
+            shm_cursor.position = shm_cursor.mmap_mut.len();
+        }
+    }
+    let ret = unsafe { pthread_atfork(None, None, Some(reset_shm_atfork)) };
+    if ret != 0 {
+        panic!("pthread_atfork failed: {}", ret);
+    }
 }

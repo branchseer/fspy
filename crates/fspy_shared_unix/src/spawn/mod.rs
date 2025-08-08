@@ -1,7 +1,8 @@
 #[cfg(target_os = "linux")]
 mod elf;
 
-use fspy_shared::ipc::PathAccess;
+use bstr::ByteSlice;
+use fspy_shared::ipc::{AccessMode, PathAccess};
 use memmap2::Mmap;
 use nix::unistd::getcwd;
 use seccomp_unotify::payload::SeccompPayload;
@@ -36,7 +37,11 @@ pub fn handle_exec(
     encoded_payload: &EncodedPayload,
     on_path_access: impl Fn(PathAccess<'_>),
 ) -> nix::Result<Option<PreExec>> {
-    command.resolve(&real_sys_with_callback(on_path_access), config)?;
+    command.resolve(&real_sys_with_callback(&on_path_access), config)?;
+    on_path_access(PathAccess {
+        mode: AccessMode::Read,
+        path: command.program.as_bstr().into(),
+    });
 
     let executable_fd = open_executable(Path::new(OsStr::from_bytes(&command.program)))?;
     let executable_mmap = unsafe { Mmap::map(&executable_fd) }

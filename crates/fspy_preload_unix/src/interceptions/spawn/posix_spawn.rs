@@ -30,7 +30,8 @@ unsafe fn handle_posix_spawn(
     struct AssertSend<T>(T);
     unsafe impl<T> Send for AssertSend<T> {}
 
-    let client = global_client();
+    let client = global_client()
+        .expect("posix_spawn(p) unexpectedly called before client initialized in ctor");
     let result = unsafe {
         client.handle_spawn::<c_int>(
             config,

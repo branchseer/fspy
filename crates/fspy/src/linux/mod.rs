@@ -45,22 +45,11 @@ use tokio::{net::UnixStream, process::Child as TokioChild};
 // use crate::FileSystemAccess;
 
 use fspy_shared::ipc::{BINCODE_CONFIG, PathAccess};
-use futures_util::{
-    FutureExt, Stream, TryStream, TryStreamExt,
-    future::{BoxFuture, try_join},
-    stream::poll_fn,
-};
+use futures_util::{FutureExt, future::try_join};
 use nix::{
     fcntl::{FcntlArg, FdFlag, OFlag, fcntl},
-    sys::{
-        memfd::{MFdFlags, memfd_create},
-        prctl::set_no_new_privs,
-        socket::{getsockopt, sockopt::SndBuf},
-    },
+    sys::memfd::{MFdFlags, memfd_create},
 };
-
-use tokio_seqpacket::UnixSeqpacket;
-use which::which;
 
 use crate::{Command, TrackedChild, arena::PathAccessArena};
 

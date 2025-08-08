@@ -2,10 +2,7 @@ use std::{cell::RefCell, path::Path};
 
 use crate::PathAccess;
 use allocator_api2::vec::Vec;
-use blink_alloc::SyncBlinkAlloc;
 use bumpalo::Bump;
-use fspy_shared::ipc::NativeStr;
-use thread_local::ThreadLocal;
 
 #[ouroboros::self_referencing]
 #[derive(Debug)]
