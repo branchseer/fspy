@@ -29,12 +29,12 @@ const NAME_MAX: usize = 255;
 /// - Instead of actually calling execve, use `access_executable` to check if the file is executable, and call `callback` with the found executable.
 /// - The path limit (PATH_MAX) is not checked.
 /// - PATH is passed as parameter instead of using the real environment variable.
-pub fn which(
+pub fn which<R>(
     file: &BStr,
     path: &BStr,
     mut access_executable: impl FnMut(&BStr) -> nix::Result<()>,
-    callback: impl FnOnce(&BStr) -> nix::Result<()>,
-) -> nix::Result<()> {
+    callback: impl FnOnce(&BStr) -> nix::Result<R>,
+) -> nix::Result<R> {
     use nix::Error;
     // 1. If file is empty, return ENOENT
     if file.is_empty() {

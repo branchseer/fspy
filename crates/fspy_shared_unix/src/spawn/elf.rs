@@ -50,7 +50,7 @@ mod tests {
     #[test]
     fn dynamic_executable() {
         assert_eq!(
-            is_dynamically_linked_to_libc(read("/bin/cat").unwrap()).unwrap(),
+            is_dynamically_linked_to_libc(read("/home/vscode/esbuild").unwrap()).unwrap(),
             true
         );
     }

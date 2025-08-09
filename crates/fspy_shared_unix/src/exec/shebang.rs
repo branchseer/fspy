@@ -14,42 +14,6 @@ fn is_whitespace(c: u8) -> bool {
     c == b' ' || c == b'\t'
 }
 
-pub trait ShebangParseFileSystem {
-    type Error;
-    fn peek_executable(&self, path: &Path, buf: &mut [u8]) -> Result<usize, Self::Error>;
-    fn shebang_format_error(&self) -> Self::Error;
-}
-
-#[derive(Default, Debug)]
-pub struct NixFileSystem(());
-
-impl ShebangParseFileSystem for NixFileSystem {
-    type Error = nix::Error;
-
-    fn peek_executable(&self, path: &Path, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        use nix::{
-            fcntl::{OFlag, open},
-            sys::stat::Mode,
-        };
-        let fd = open_executable(path)?;
-        // TODO: check exec permission
-        let mut total_read_size = 0;
-        loop {
-            let read_size = nix::unistd::read(&fd, &mut buf[total_read_size..])?;
-            if read_size == 0 {
-                break;
-            }
-            total_read_size += read_size;
-        }
-        Ok(total_read_size)
-    }
-
-    fn shebang_format_error(&self) -> Self::Error {
-        // https://github.com/torvalds/linux/blob/5723cc3450bccf7f98f227b9723b5c9f6b3af1c5/fs/binfmt_script.c#L59-L80
-        nix::Error::ENOEXEC
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct ParseShebangOptions {
     pub split_arguments: bool, // TODO: recursive
@@ -63,11 +27,11 @@ impl Default for ParseShebangOptions {
     }
 }
 
-pub fn parse_shebang<FS: ShebangParseFileSystem>(
-    fs: &FS,
+pub fn parse_shebang(
+    mut peek_executable: impl FnMut(&Path, &mut [u8]) -> nix::Result<usize>,
     path: &Path,
     options: ParseShebangOptions,
-) -> Result<Option<Shebang>, FS::Error> {
+) -> Result<Option<Shebang>, nix::Error> {
     // https://lwn.net/Articles/779997/
     // > The array used to hold the shebang line is defined to be 128 bytes in length
     // TODO: check linux/macOS' kernel source
@@ -75,14 +39,15 @@ pub fn parse_shebang<FS: ShebangParseFileSystem>(
 
     let mut buf = [0u8; PEEK_SIZE];
 
-    let total_read_size = fs.peek_executable(path, &mut buf)?;
+    let total_read_size = peek_executable(path, &mut buf)?;
 
     let Some(buf) = buf[..total_read_size].strip_prefix(b"#!") else {
         return Ok(None);
     };
 
     let Some(buf) = buf.split(|ch| matches!(*ch, b'\n')).next() else {
-        return Err(fs.shebang_format_error());
+        // https://github.com/torvalds/linux/blob/5723cc3450bccf7f98f227b9723b5c9f6b3af1c5/fs/binfmt_script.c#L59-L80
+        return Err(nix::Error::ENOEXEC);
     };
     let buf = buf.trim_ascii();
     let Some(interpreter) = buf.split(|ch| is_whitespace(*ch)).next() else {

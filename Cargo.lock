@@ -567,7 +567,7 @@ dependencies = [
  "thread_local",
  "tokio",
  "tokio-seqpacket",
- "which 7.0.3",
+ "which",
  "winapi",
  "winsafe 0.0.24",
  "xxhash-rust",
@@ -598,7 +598,7 @@ dependencies = [
  "socket2 0.5.10",
  "syscalls",
  "thread_local",
- "which 7.0.3",
+ "which",
 ]
 
 [[package]]
@@ -635,7 +635,6 @@ dependencies = [
  "seccomp_unotify",
  "stackalloc",
  "tempfile",
- "which 8.0.0",
 ]
 
 [[package]]
@@ -2008,17 +2007,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24d643ce3fd3e5b54854602a080f34fb10ab75e0b813ee32d00ca2b44fa74762"
 dependencies = [
  "either",
- "env_home",
- "rustix",
- "winsafe 0.0.19",
-]
-
-[[package]]
-name = "which"
-version = "8.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3fabb953106c3c8eea8306e4393700d7657561cb43122571b172bbfb7c7ba1d"
-dependencies = [
  "env_home",
  "rustix",
  "winsafe 0.0.19",

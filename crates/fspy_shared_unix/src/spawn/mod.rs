@@ -11,9 +11,8 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::{OsStrExt as _, OsStringExt as _};
 use std::path::Path;
 use std::thread;
-use which::which_in;
 
-use crate::exec::{ExecResolveConfig, real_sys_with_callback};
+use crate::exec::ExecResolveConfig;
 use crate::open_exec::open_executable;
 use crate::payload::PAYLOAD_ENV_NAME;
 
@@ -35,9 +34,22 @@ pub fn handle_exec(
     command: &mut Exec,
     config: ExecResolveConfig,
     encoded_payload: &EncodedPayload,
-    on_path_access: impl Fn(PathAccess<'_>),
+    mut on_path_access: impl FnMut(PathAccess<'_>),
 ) -> nix::Result<Option<PreExec>> {
-    command.resolve(&real_sys_with_callback(&on_path_access), config)?;
+    let mut on_path_access = |path_access: PathAccess<'_>| {
+        if path_access.path.as_bytes().first() == Some(&b'/') {
+            on_path_access(path_access);
+        } else {
+            let path =
+                std::path::absolute(path_access.path.as_os_str()).expect("Failed to get cwd");
+            on_path_access(PathAccess {
+                path: path.as_path().into(),
+                mode: path_access.mode,
+            });
+        }
+    };
+
+    command.resolve(&mut on_path_access, config)?;
     on_path_access(PathAccess {
         mode: AccessMode::Read,
         path: command.program.as_bstr().into(),

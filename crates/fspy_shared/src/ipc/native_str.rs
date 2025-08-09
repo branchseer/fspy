@@ -68,6 +68,11 @@ impl<'a> NativeStr<'a> {
         std::os::unix::ffi::OsStrExt::from_bytes(self.data)
     }
 
+    #[cfg(unix)]
+    pub fn as_bytes(&self) -> &'a [u8] {
+        &self.data
+    }
+
     #[cfg(windows)]
     pub fn to_os_string(&self) -> OsString {
         use bytemuck::allocation::pod_collect_to_vec;
