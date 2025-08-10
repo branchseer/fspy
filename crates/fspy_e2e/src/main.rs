@@ -8,7 +8,7 @@ use std::{
 };
 
 use fspy::{AccessMode, PathAccess};
-use futures_util::future::{join, try_join};
+use futures_util::future::try_join;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]

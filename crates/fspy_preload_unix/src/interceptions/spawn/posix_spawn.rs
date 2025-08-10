@@ -22,7 +22,7 @@ unsafe fn handle_posix_spawn(
     original: PosixSpawnFn,
     pid: *mut libc::pid_t,
     file: *const c_char,
-    file_actions: *const libc::posix_spawn_file_actions_t,
+    mut file_actions: *const libc::posix_spawn_file_actions_t,
     attrp: *const libc::posix_spawnattr_t,
     argv: *const *mut c_char,
     envp: *const *mut c_char,
@@ -32,6 +32,11 @@ unsafe fn handle_posix_spawn(
 
     let client = global_client()
         .expect("posix_spawn(p) unexpectedly called before client initialized in ctor");
+
+    match unsafe { client.handle_posix_spawn_opts(&mut file_actions, attrp) } {
+        Err(errno) => return errno as _,
+        Ok(()) => {}
+    }
     let result = unsafe {
         client.handle_exec::<c_int>(
             config,

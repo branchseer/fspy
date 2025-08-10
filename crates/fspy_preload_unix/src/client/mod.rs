@@ -50,8 +50,7 @@ use passfd::FdPassingExt;
 use raw_exec::RawExec;
 use thread_local::ThreadLocal;
 
-use crate::client::convert::MaybeRelative;
-
+#[derive(Debug)]
 struct ShmCursor {
     mmap_mut: MmapMut,
     position: usize,
@@ -72,7 +71,15 @@ pub struct Client {
     encoded_payload: EncodedPayload,
     shm_id: AtomicUsize,
     tls_shm_cursor: ThreadLocal<RefCell<ShmCursor>>,
+
+    #[cfg(target_os = "macos")]
+    posix_spawn_file_actions: OnceLock<libc::posix_spawn_file_actions_t>,
 }
+
+#[cfg(target_os = "macos")]
+unsafe impl Sync for Client {}
+#[cfg(target_os = "macos")]
+unsafe impl Send for Client {}
 
 impl Debug for Client {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -89,6 +96,8 @@ impl Client {
             shm_id: AtomicUsize::new(0),
             encoded_payload,
             tls_shm_cursor: ThreadLocal::new(),
+            #[cfg(target_os = "macos")]
+            posix_spawn_file_actions: OnceLock::new(),
         }
     }
     fn new_shm(&self) -> io::Result<ShmCursor> {
@@ -193,6 +202,78 @@ impl Client {
         }??;
 
         Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    pub unsafe fn handle_posix_spawn_opts(
+        &self,
+        _file_actions: &mut *const libc::posix_spawn_file_actions_t,
+        _attrp: *const libc::posix_spawnattr_t,
+    ) -> nix::Result<()> {
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    pub unsafe fn handle_posix_spawn_opts(
+        &self,
+        file_actions: &mut *const libc::posix_spawn_file_actions_t,
+        attrp: *const libc::posix_spawnattr_t,
+    ) -> nix::Result<()> {
+        use core::mem::zeroed;
+        use libc::c_short;
+        let cloexec_default = if attrp.is_null() {
+            false
+        } else {
+            let mut flags = 0;
+            let ret = unsafe { libc::posix_spawnattr_getflags(attrp, &mut flags) };
+            if ret != 0 {
+                return Err(nix::Error::from_raw(ret));
+            }
+            (flags & (libc::POSIX_SPAWN_CLOEXEC_DEFAULT as c_short)) != 0
+        };
+
+        if !cloexec_default {
+            return Ok(());
+        }
+
+        unsafe extern "C" {
+            unsafe fn posix_spawn_file_actions_addinherit_np(
+                actions: *mut libc::posix_spawn_file_actions_t,
+                fd: libc::c_int,
+            ) -> libc::c_int;
+        }
+
+        // ensure ipc fd is inherited when POSIX_SPAWN_CLOEXEC_DEFAULT is set.
+        if (*file_actions).is_null() {
+            let shared_file_actions = self.posix_spawn_file_actions.get_or_init(|| {
+                let mut fa: libc::posix_spawn_file_actions_t = unsafe { zeroed() };
+                let ret = unsafe { libc::posix_spawn_file_actions_init(&mut fa) };
+                assert_eq!(ret, 0);
+                let ret = unsafe {
+                    posix_spawn_file_actions_addinherit_np(
+                        &mut fa,
+                        self.encoded_payload.payload.ipc_fd,
+                    )
+                };
+                assert_eq!(ret, 0);
+                fa
+            });
+            *file_actions = shared_file_actions;
+        } else {
+            // this makes `file_actions` list grow indefinitely if it keeps being reused to spawn processes,
+            // but I can't think of a better way. (no way to inspect or clone `file_actions`)
+            let ret = unsafe {
+                posix_spawn_file_actions_addinherit_np(
+                    (*file_actions).cast_mut(),
+                    self.encoded_payload.payload.ipc_fd,
+                )
+            };
+            if ret != 0 {
+                return Err(nix::Error::from_raw(ret));
+            }
+        }
+        Ok(())
+        //  posix_spawn_file_actions_addclose(actions, fd, path, oflag, mode)
     }
 }
 
