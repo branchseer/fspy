@@ -91,7 +91,7 @@ unsafe extern "C" fn posix_spawnp(
 ) -> libc::c_int {
     unsafe {
         handle_posix_spawn(
-            ExecResolveConfig::search_path_disabled(),
+            ExecResolveConfig::search_path_enabled(None),
             posix_spawnp::original(),
             pid,
             file,
@@ -114,7 +114,7 @@ unsafe extern "C" fn posix_spawn(
 ) -> libc::c_int {
     unsafe {
         handle_posix_spawn(
-            ExecResolveConfig::search_path_enabled(None),
+            ExecResolveConfig::search_path_disabled(),
             posix_spawn::original(),
             pid,
             file,
