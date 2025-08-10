@@ -150,70 +150,75 @@ unsafe extern "C" fn execvp(prog: *const c_char, argv: *const *const c_char) -> 
     )
 }
 
-intercept!(execvpe(64): unsafe extern "C" fn(
-    prog: *const libc::c_char,
-    argv: *const *const libc::c_char,
-    envp: *const *const libc::c_char,
-) -> libc::c_int);
-unsafe extern "C" fn execvpe(
-    file: *const c_char,
-    argv: *const *const libc::c_char,
-    envp: *const *const libc::c_char,
-) -> c_int {
-    let _unused = execvpe::original;
-    handle_exec(
-        ExecResolveConfig::search_path_enabled(None),
-        file,
-        argv,
-        envp,
-    )
-}
+#[cfg(target_os = "linux")]
+mod linux_only {
+    use super::*;
 
-intercept!(execveat(64): unsafe extern "C" fn(
-    dirfd: c_int,
-    prog: *const libc::c_char,
-    argv: *const *mut libc::c_char,
-    envp: *const *mut libc::c_char,
-    flags: c_int
-) -> libc::c_int);
-unsafe extern "C" fn execveat(
-    dirfd: c_int,
-    pathname: *const libc::c_char,
-    argv: *const *mut libc::c_char,
-    envp: *const *mut libc::c_char,
-    _flags: c_int, // TODO: conform to semantics of flags
-) -> libc::c_int {
-    let _unused = execveat::original;
-    let abs_path_result = unsafe {
-        PathAt(dirfd, pathname).to_absolute_path(|path| Ok(CString::new(path.deref()).unwrap()))
-    };
-    let abs_path = match abs_path_result {
-        Ok(ok) => ok.as_ptr(),
-        Err(errno) => {
-            errno.set();
-            return -1;
-        }
-    };
-    handle_exec(
-        ExecResolveConfig::search_path_disabled(),
-        abs_path,
-        argv.cast(),
-        envp.cast(),
-    )
-}
+    intercept!(execvpe(64): unsafe extern "C" fn(
+        prog: *const libc::c_char,
+        argv: *const *const libc::c_char,
+        envp: *const *const libc::c_char,
+    ) -> libc::c_int);
+    unsafe extern "C" fn execvpe(
+        file: *const c_char,
+        argv: *const *const libc::c_char,
+        envp: *const *const libc::c_char,
+    ) -> c_int {
+        let _unused = execvpe::original;
+        handle_exec(
+            ExecResolveConfig::search_path_enabled(None),
+            file,
+            argv,
+            envp,
+        )
+    }
+    intercept!(execveat(64): unsafe extern "C" fn(
+        dirfd: c_int,
+        prog: *const libc::c_char,
+        argv: *const *mut libc::c_char,
+        envp: *const *mut libc::c_char,
+        flags: c_int
+    ) -> libc::c_int);
+    unsafe extern "C" fn execveat(
+        dirfd: c_int,
+        pathname: *const libc::c_char,
+        argv: *const *mut libc::c_char,
+        envp: *const *mut libc::c_char,
+        _flags: c_int, // TODO: conform to semantics of flags
+    ) -> libc::c_int {
+        let _unused = execveat::original;
+        let abs_path_result = unsafe {
+            PathAt(dirfd, pathname).to_absolute_path(|path| Ok(CString::new(path.deref()).unwrap()))
+        };
+        let abs_path = match abs_path_result {
+            Ok(ok) => ok.as_ptr(),
+            Err(errno) => {
+                errno.set();
+                return -1;
+            }
+        };
+        handle_exec(
+            ExecResolveConfig::search_path_disabled(),
+            abs_path,
+            argv.cast(),
+            envp.cast(),
+        )
+    }
 
-intercept!(fexecve(64): unsafe extern "C" fn(
-    fd: c_int,
-    argv: *const *const libc::c_char,
-    envp: *const *const libc::c_char,
-) -> libc::c_int);
-unsafe extern "C" fn fexecve(
-    fd: c_int,
-    argv: *const *const libc::c_char,
-    envp: *const *const libc::c_char,
-) -> libc::c_int {
-    let _unused = fexecve::original;
-    let prog = format!("/proc/self/fd/{}\0", fd);
-    let prog = prog.as_ptr();
-    handle_exec(ExecResolveConfig::search_path_disabled(), prog, argv, envp)
+    intercept!(fexecve(64): unsafe extern "C" fn(
+        fd: c_int,
+        argv: *const *const libc::c_char,
+        envp: *const *const libc::c_char,
+    ) -> libc::c_int);
+    unsafe extern "C" fn fexecve(
+        fd: c_int,
+        argv: *const *const libc::c_char,
+        envp: *const *const libc::c_char,
+    ) -> libc::c_int {
+        let _unused = fexecve::original;
+        let prog = format!("/proc/self/fd/{}\0", fd);
+        let prog = prog.as_ptr();
+        handle_exec(ExecResolveConfig::search_path_disabled(), prog, argv, envp)
+    }
+
 }

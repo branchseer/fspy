@@ -1,6 +1,8 @@
 use base64::{Engine as _, prelude::BASE64_STANDARD_NO_PAD};
 use bincode::{Decode, Encode, config::standard};
 use bstr::BString;
+use fspy_shared::ipc::NativeString;
+
 use std::{
     os::{
         fd::RawFd,
@@ -11,11 +13,23 @@ use std::{
 #[derive(Debug, Encode, Decode)]
 pub struct Payload {
     pub ipc_fd: RawFd,
-    pub preload_path: String,
+    pub preload_path: NativeString,
+
+    #[cfg(target_os = "macos")]
+    pub fixtures: Fixtures,
 
     #[cfg(target_os = "linux")]
     pub seccomp_payload: seccomp_unotify::payload::SeccompPayload,
 }
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Encode, Decode, Clone)]
+pub struct Fixtures {
+    pub bash_path: NativeString,
+    pub coreutils_path: NativeString,
+    // pub interpose_cdylib_path: NativeString,
+}
+
 
 pub(crate) const PAYLOAD_ENV_NAME: &str = "FSPY_PAYLOAD";
 

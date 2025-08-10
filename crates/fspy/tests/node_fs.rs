@@ -3,7 +3,7 @@ use std::{env::current_dir, io};
 use fspy::{AccessMode, PathAccess, PathAccessIterable, TrackedChild};
 
 async fn track_node_script(script: &str) -> io::Result<PathAccessIterable> {
-    let mut command = fspy::Spy::global()?.new_command("/home/vscode/node");
+    let mut command = fspy::Spy::global()?.new_command("node");
     command.arg("-e").arg(script);
     let TrackedChild {
         mut tokio_child,

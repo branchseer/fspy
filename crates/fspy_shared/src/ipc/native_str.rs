@@ -141,6 +141,14 @@ impl<'a> From<&'a OsStr> for NativeString {
     }
 }
 #[cfg(unix)]
+impl<'a> From<String> for NativeString {
+    fn from(value: String) -> Self {
+        Self {
+            data: value.as_bytes().into(),
+        }
+    }
+}
+#[cfg(unix)]
 impl<'a> From<&'a std::path::Path> for NativeString {
     fn from(value: &'a std::path::Path) -> Self {
         value.as_os_str().into()

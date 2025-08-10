@@ -1,3 +1,5 @@
+#![cfg(target_os = "linux")]
+
 use assertables::assert_contains;
 use nix::fcntl::{AT_FDCWD, OFlag, openat};
 use nix::sys::stat::Mode;

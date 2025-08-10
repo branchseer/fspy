@@ -24,8 +24,12 @@ intercept!(open(64): unsafe extern "C" fn(*const c_char, c_int, args: ...) -> c_
 unsafe extern "C" fn open(path: *const c_char, flags: c_int, mut args: ...) -> c_int {
     unsafe { handle_open(path, OpenFlags(flags)) };
     if has_mode_arg(flags) {
-        // https://github.com/tailhook/openat/issues/21#issuecomment-535914957
-        let mode: libc::mode_t = unsafe { args.arg() };
+        #[cfg(not(target_os = "macos"))]
+        type Mode = libc::mode_t;
+        #[cfg(target_os = "macos")] // https://github.com/tailhook/openat/issues/21#issuecomment-535914957
+        type Mode = c_int;
+
+        let mode: Mode = unsafe { args.arg() };
         unsafe { open::original()(path, flags, mode) }
     } else {
         unsafe { open::original()(path, flags) }

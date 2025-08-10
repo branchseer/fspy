@@ -21,3 +21,6 @@ libc = "0.2.171"
 seccomp_unotify = { workspace = true, features = ["target"] }
 memmap2 = "0.9.7"
 elf = { version = "0.8.0", default-features = false }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+phf = { version = "0.11.3", features = ["macros"] }

@@ -32,16 +32,16 @@ fn get_fd_path(fd: RawFd) -> nix::Result<PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
-fn get_fd_path(fd: RawFd) -> nix::Result<OsString> {
+fn get_fd_path(fd: RawFd) -> nix::Result<PathBuf> {
     if fd == libc::AT_FDCWD {
-        return Ok(getcwd()?.into_os_string().into_vec().into());
+        return getcwd();
     };
     let mut path = std::path::PathBuf::new();
     nix::fcntl::fcntl(
         unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) },
         nix::fcntl::FcntlArg::F_GETPATH(&mut path),
     )?;
-    Ok(path.into_os_string().into_vec().into())
+    Ok(path)
 }
 
 pub trait ToAbsolutePath {

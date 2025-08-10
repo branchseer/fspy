@@ -1,45 +1,44 @@
-use std::{
-    ffi::{OsStr, OsString},
-    iter::once,
-    os::unix::ffi::OsStrExt as _,
-    path::Path,
-};
-
-use allocator_api2::alloc::Allocator;
-use phf::{Set, phf_set};
-
-use super::Payload;
 use crate::{
-    macos::PAYLOAD_ENV_NAME,
-    unix::{
-        cmdinfo::{CommandInfo, ensure_env},
-        shebang::{NixFileSystem, parse_shebang},
-    },
+    exec::{Exec, ensure_env},
+    payload::{EncodedPayload, PAYLOAD_ENV_NAME},
+};
+use phf::{Set, phf_set};
+use std::{
+    convert::Infallible,
+    ffi::OsStr,
+    os::unix::ffi::{OsStrExt, OsStringExt},
+    path::{Path, absolute},
 };
 
-pub struct PayloadWithEncodedString {
-    pub payload: Payload,
-    pub payload_string: OsString,
+pub struct PreExec(Infallible);
+impl PreExec {
+    pub fn run(&mut self) -> nix::Result<()> {
+        match self.0 {}
+    }
 }
 
-pub fn inject<'a, A: Allocator + Copy + 'a>(
-    alloc: A,
-    command: &mut CommandInfo<'a, A>,
-    playload_with_str: &'a PayloadWithEncodedString,
-) -> nix::Result<()> {
-    command.parse_shebang(alloc)?;
+pub fn handle_exec(
+    command: &mut Exec,
+    encoded_payload: &EncodedPayload,
+) -> nix::Result<Option<PreExec>> {
+    if command.program.first() != Some(&b'/') {
+        let program =
+            absolute(OsStr::from_bytes(&command.program)).expect("Failed to get absolute path");
+        command.program = program.into_os_string().into_vec().into();
+    }
 
-    // TODO: resolve relative paths (e.g. program `sh` with cwd `/bin`)
+    let program_path = Path::new(OsStr::from_bytes(&command.program));
+
     let injectable = if let (Some(parent), Some(file_name)) =
-        (command.program.parent(), command.program.file_name())
+        (program_path.parent(), program_path.file_name())
     {
         if matches!(parent.as_os_str().as_bytes(), b"/bin" | b"/usr/bin") {
-            let fixtures = &playload_with_str.payload.fixtures;
+            let fixtures = &encoded_payload.payload.fixtures;
             if matches!(file_name.as_bytes(), b"sh" | b"bash") {
-                command.program = Path::new(fixtures.bash_path.as_os_str());
+                command.program = fixtures.bash_path.as_bytes().into();
                 true
             } else if COREUTILS_FUNCTIONS.contains(file_name.as_bytes()) {
-                command.program = Path::new(fixtures.coreutils_path.as_os_str());
+                command.program = fixtures.coreutils_path.as_bytes().into();
                 true
             } else {
                 false
@@ -55,29 +54,26 @@ pub fn inject<'a, A: Allocator + Copy + 'a>(
     if injectable {
         ensure_env(
             &mut command.envs,
-            OsStr::from_bytes(DYLD_INSERT_LIBRARIES),
-            &playload_with_str
+            DYLD_INSERT_LIBRARIES,
+            &encoded_payload
                 .payload
-                .fixtures
-                .interpose_cdylib_path
-                .as_os_str(),
+                .preload_path
+                .as_bytes(),
         )?;
         ensure_env(
             &mut command.envs,
-            OsStr::from_bytes(PAYLOAD_ENV_NAME.as_bytes()),
-            &playload_with_str.payload_string.as_os_str(),
+            PAYLOAD_ENV_NAME,
+            &encoded_payload.encoded_string,
         )?;
     } else {
         command.envs.retain(|(name, _)| {
-            let name = name.as_bytes();
             name != DYLD_INSERT_LIBRARIES && name != PAYLOAD_ENV_NAME.as_bytes()
         });
     }
-
-    Ok(())
+    Ok(None)
 }
 
-static COREUTILS_FUNCTIONS: Set<&'static [u8]> = phf_set! {
+pub static COREUTILS_FUNCTIONS: Set<&'static [u8]> = phf_set! {
     b"[", b"arch", b"b2sum", b"b3sum", b"base32", b"base64", b"basename", b"basenc",
     b"cat", b"chgrp", b"chmod", b"chown", b"chroot", b"cksum", b"comm", b"cp", b"csplit",
     b"cut", b"date", b"dd", b"df", b"dir", b"dircolors", b"dirname", b"du", b"echo", b"env",
@@ -92,6 +88,3 @@ static COREUTILS_FUNCTIONS: Set<&'static [u8]> = phf_set! {
     b"tee", b"test", b"timeout", b"touch", b"tr", b"true", b"truncate", b"tsort", b"tty", b"uname",
     b"unexpand", b"uniq", b"unlink", b"uptime", b"users", b"vdir", b"wc", b"who", b"whoami", b"yes",
 };
-
-#[doc(hidden)]
-pub const COREUTILS_FUNCTIONS_FOR_TEST: &Set<&'static [u8]> = &COREUTILS_FUNCTIONS;

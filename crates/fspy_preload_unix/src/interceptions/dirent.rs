@@ -24,7 +24,7 @@ unsafe extern "C" fn scandir(
 
 #[cfg(target_os = "macos")]
 mod macos_only {
-    use crate::{client::handle_open, macros::intercept};
+    use super::*;
     intercept!(scandir_b: unsafe extern "C" fn (
         dirname: *const c_char,
         namelist: *mut c_void,
@@ -37,7 +37,7 @@ mod macos_only {
         select: *const c_void,
         compar: *const c_void,
     ) -> c_int {
-        unsafe { handle_open(dirname, AccessMode::ReadDir) }.unwrap();
+        unsafe { handle_open(dirname, AccessMode::ReadDir) };
         unsafe { scandir_b::original()(dirname, namelist, select, compar) }
     }
 }

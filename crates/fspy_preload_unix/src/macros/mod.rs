@@ -1,8 +1,9 @@
-#[cfg(target_os = "linux")]
-pub mod linux;
-
-#[cfg(target_os = "linux")]
-pub use linux::*;
-
 #[cfg(target_os = "macos")]
-mod macos;
+#[path ="./macos.rs"]
+mod os_impl;
+
+#[cfg(target_os = "linux")]
+#[path ="./linux.rs"]
+mod os_impl;
+
+pub use os_impl::*;

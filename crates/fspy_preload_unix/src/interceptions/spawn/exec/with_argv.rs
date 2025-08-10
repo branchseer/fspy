@@ -47,7 +47,7 @@ pub unsafe fn with_argv(
     unsafe { va.arg::<*const c_char>() };
 
     f(
-        unsafe { transmute::<&[MaybeUninit<*const u8>], &[*const u8]>(&*out) },
+        unsafe { transmute::<&[MaybeUninit<*const c_char>], &[*const c_char]>(&*out) },
         va,
     );
 

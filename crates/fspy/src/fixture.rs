@@ -5,9 +5,9 @@ use std::{
 };
 
 pub struct Fixture {
-    name: &'static str,
-    content: &'static [u8],
-    hash: &'static str,
+    pub name: &'static str,
+    pub content: &'static [u8],
+    pub hash: &'static str,
 }
 
 #[doc(hidden)]

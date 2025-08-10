@@ -7,14 +7,7 @@
 mod fixture;
 
 #[cfg(unix)]
-mod unix;
-
-#[cfg(target_os = "linux")]
-#[path = "./linux/mod.rs"]
-mod os_impl;
-
-#[cfg(target_os = "macos")]
-#[path = "./macos/mod.rs"]
+#[path = "./unix/mod.rs"]
 mod os_impl;
 
 #[cfg(target_os = "windows")]
@@ -32,11 +25,9 @@ pub use command::Command;
 use futures_util::future::{BoxFuture};
 use os_impl::SpyInner;
 use tokio::process::Child;
-use bumpalo::Bump;
 pub use fspy_shared::ipc::PathAccess;
 pub use fspy_shared::ipc::AccessMode;
 pub use os_impl::PathAccessIterable;
-
 
 pub struct TrackedChild {
     pub tokio_child: Child,
@@ -49,7 +40,7 @@ impl Spy {
     pub fn new() -> io::Result<Self> {
         let tmp_dir = temp_dir().join("fspy");
         let _ = create_dir(&tmp_dir);
-        Ok(Self(SpyInner::init_in_dir(&tmp_dir)?))
+        Ok(Self(SpyInner::init_in(&tmp_dir)?))
     }
     #[cfg(target_os = "linux")]
     pub fn new() -> io::Result<Self> {
