@@ -574,6 +574,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fspy_e2e"
+version = "0.0.0"
+dependencies = [
+ "fspy",
+]
+
+[[package]]
 name = "fspy_preload_unix"
 version = "0.0.0"
 dependencies = [

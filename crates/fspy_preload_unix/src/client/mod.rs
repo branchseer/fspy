@@ -140,8 +140,10 @@ impl Client {
     }
 
     fn send(&self, path_access: PathAccess<'_>) -> anyhow::Result<()> {
-        if path_access.path.as_bstr().starts_with(b"/dev/")
-            || (cfg!(target_os = "linux") && path_access.path.as_bstr().starts_with(b"/proc/"))
+        let path = path_access.path.as_bstr();
+        if path.starts_with(b"/dev/")
+            || (cfg!(target_os = "linux")
+                && (path.starts_with(b"/proc/") || path.starts_with(b"/sys/")))
         {
             return Ok(());
         };
