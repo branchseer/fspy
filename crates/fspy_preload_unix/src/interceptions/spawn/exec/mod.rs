@@ -1,13 +1,20 @@
 mod with_argv;
 
-use std::ffi::CStr;
+use std::{
+    ffi::{CStr, CString},
+    ops::Deref,
+};
 
 use fspy_shared_unix::exec::ExecResolveConfig;
 use libc::{c_char, c_int};
 use with_argv::with_argv;
 
 use crate::{
-    client::{global_client, raw_exec::RawExec},
+    client::{
+        convert::{PathAt, ToAbsolutePath},
+        global_client,
+        raw_exec::RawExec,
+    },
     macros::intercept,
 };
 
@@ -30,7 +37,8 @@ fn handle_exec(
     argv: *const *const libc::c_char,
     envp: *const *const libc::c_char,
 ) -> libc::c_int {
-    let client = global_client().expect("exec unexpectedly called before client initialized in ctor");
+    let client =
+        global_client().expect("exec unexpectedly called before client initialized in ctor");
     let result = unsafe {
         client.handle_exec(
             config,
@@ -69,23 +77,9 @@ unsafe extern "C" fn execve(
     handle_exec(ExecResolveConfig::search_path_disabled(), prog, argv, envp)
 }
 
-intercept!(execvp(64): unsafe extern "C" fn(
-    prog: *const libc::c_char,
-    argv: *const *const libc::c_char,
-) -> c_int);
-unsafe extern "C" fn execvp(prog: *const c_char, argv: *const *const c_char) -> c_int {
-    let _ = execvp::original; // expect original to be unused
-    handle_exec(
-        ExecResolveConfig::search_path_enabled(None),
-        prog,
-        argv,
-        unsafe { environ() },
-    )
-}
-
 intercept!(execl(64): unsafe extern "C" fn(path: *const c_char, arg0: *const c_char, ...) -> c_int);
 unsafe extern "C" fn execl(path: *const c_char, arg0: *const c_char, valist: ...) -> c_int {
-    let _ = execl::original; // expect original to be unused
+    let _unused = execl::original;
     unsafe {
         with_argv(valist, arg0, |args, _remaining| {
             handle_exec(
@@ -98,6 +92,64 @@ unsafe extern "C" fn execl(path: *const c_char, arg0: *const c_char, valist: ...
     }
 }
 
+intercept!(execlp(64): unsafe extern "C" fn(path: *const c_char, arg0: *const c_char, ...) -> c_int);
+unsafe extern "C" fn execlp(path: *const c_char, arg0: *const c_char, valist: ...) -> c_int {
+    let _unused = execlp::original;
+    unsafe {
+        with_argv(valist, arg0, |args, _remaining| {
+            handle_exec(
+                ExecResolveConfig::search_path_enabled(None),
+                path,
+                args.as_ptr(),
+                environ(),
+            )
+        })
+    }
+}
+
+intercept!(execle(64): unsafe extern "C" fn(path: *const c_char, arg0: *const c_char, ...) -> c_int);
+unsafe extern "C" fn execle(path: *const c_char, arg0: *const c_char, valist: ...) -> c_int {
+    let _unused = execle::original;
+    unsafe {
+        with_argv(valist, arg0, |args, mut remaining| {
+            let envp = remaining.arg::<*const *const c_char>();
+            handle_exec(
+                ExecResolveConfig::search_path_disabled(),
+                path,
+                args.as_ptr(),
+                envp,
+            )
+        })
+    }
+}
+
+intercept!(execv(64): unsafe extern "C" fn(path: *const c_char, argv: *const *const c_char) -> c_int);
+unsafe extern "C" fn execv(path: *const c_char, argv: *const *const c_char) -> c_int {
+    let _unused = execv::original;
+    unsafe {
+        handle_exec(
+            ExecResolveConfig::search_path_disabled(),
+            path,
+            argv,
+            environ(),
+        )
+    }
+}
+
+intercept!(execvp(64): unsafe extern "C" fn(
+    prog: *const libc::c_char,
+    argv: *const *const libc::c_char,
+) -> c_int);
+unsafe extern "C" fn execvp(prog: *const c_char, argv: *const *const c_char) -> c_int {
+    let _unused = execvp::original;
+    handle_exec(
+        ExecResolveConfig::search_path_enabled(None),
+        prog,
+        argv,
+        unsafe { environ() },
+    )
+}
+
 intercept!(execvpe(64): unsafe extern "C" fn(
     prog: *const libc::c_char,
     argv: *const *const libc::c_char,
@@ -108,7 +160,7 @@ unsafe extern "C" fn execvpe(
     argv: *const *const libc::c_char,
     envp: *const *const libc::c_char,
 ) -> c_int {
-    let _ = execvpe::original;
+    let _unused = execvpe::original;
     handle_exec(
         ExecResolveConfig::search_path_enabled(None),
         file,
@@ -117,15 +169,51 @@ unsafe extern "C" fn execvpe(
     )
 }
 
-// unsafe extern "C" fn execveat(
-//     dirfd: c_int,
-//     pathname: *const libc::c_char,
-//     argv: *const *const libc::c_char,
-//     envp: *const *const libc::c_char,
-//     flags: c_int,
-// ) -> libc::c_int {
-//     // TODO: implement flags (AT_EMPTY_PATH/AT_SYMLINK_NOFOLLOW) semantics
-//     0
-// }
+intercept!(execveat(64): unsafe extern "C" fn(
+    dirfd: c_int,
+    prog: *const libc::c_char,
+    argv: *const *mut libc::c_char,
+    envp: *const *mut libc::c_char,
+    flags: c_int
+) -> libc::c_int);
+unsafe extern "C" fn execveat(
+    dirfd: c_int,
+    pathname: *const libc::c_char,
+    argv: *const *mut libc::c_char,
+    envp: *const *mut libc::c_char,
+    _flags: c_int, // TODO: conform to semantics of flags
+) -> libc::c_int {
+    let _unused = execveat::original;
+    let abs_path_result = unsafe {
+        PathAt(dirfd, pathname).to_absolute_path(|path| Ok(CString::new(path.deref()).unwrap()))
+    };
+    let abs_path = match abs_path_result {
+        Ok(ok) => ok.as_ptr(),
+        Err(errno) => {
+            errno.set();
+            return -1;
+        }
+    };
+    handle_exec(
+        ExecResolveConfig::search_path_disabled(),
+        abs_path,
+        argv.cast(),
+        envp.cast(),
+    )
+}
 
-// TODO: execveat/fexecve
+intercept!(fexecve(64): unsafe extern "C" fn(
+    fd: c_int,
+    argv: *const *const libc::c_char,
+    envp: *const *const libc::c_char,
+) -> libc::c_int);
+unsafe extern "C" fn fexecve(
+    fd: c_int,
+    argv: *const *const libc::c_char,
+    envp: *const *const libc::c_char,
+) -> libc::c_int {
+    let _unused = fexecve::original;
+    let prog = format!("/proc/self/fd/{}\0", fd);
+    let prog = prog.as_ptr();
+    handle_exec(ExecResolveConfig::search_path_disabled(), prog, argv, envp)
+}

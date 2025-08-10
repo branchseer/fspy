@@ -37,7 +37,7 @@ pub fn handle_exec(
     mut on_path_access: impl FnMut(PathAccess<'_>),
 ) -> nix::Result<Option<PreExec>> {
     let mut on_path_access = |path_access: PathAccess<'_>| {
-        if path_access.path.as_bytes().first() == Some(&b'/') {
+        if path_access.path.as_bstr().first() == Some(&b'/') {
             on_path_access(path_access);
         } else {
             let path =

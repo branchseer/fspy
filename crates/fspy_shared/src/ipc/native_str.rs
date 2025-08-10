@@ -69,8 +69,10 @@ impl<'a> NativeStr<'a> {
     }
 
     #[cfg(unix)]
-    pub fn as_bytes(&self) -> &'a [u8] {
-        &self.data
+    pub fn as_bstr(&self) -> &'a BStr {
+        use bstr::ByteSlice;
+
+        self.data.as_bstr()
     }
 
     #[cfg(windows)]
