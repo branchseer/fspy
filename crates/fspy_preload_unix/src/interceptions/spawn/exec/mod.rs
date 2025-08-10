@@ -184,14 +184,22 @@ mod linux_only {
         pathname: *const libc::c_char,
         argv: *const *mut libc::c_char,
         envp: *const *mut libc::c_char,
-        _flags: c_int, // TODO: conform to semantics of flags
+        flags: c_int, // TODO: conform to semantics of flags
     ) -> libc::c_int {
         let _unused = execveat::original;
         let abs_path_result = unsafe {
-            PathAt(dirfd, pathname).to_absolute_path(|path| Ok(CString::new(path.deref()).unwrap()))
+            PathAt(dirfd, pathname).to_absolute_path(|path| {
+                let Some(path) = path else {
+                    return Ok(None);
+                };
+                Ok(Some(CString::new(path.deref()).unwrap()))
+            })
         };
         let abs_path = match abs_path_result {
-            Ok(ok) => ok.as_ptr(),
+            Ok(None) => {
+                return unsafe { execveat::original()(dirfd, pathname, argv, envp, flags) };
+            }
+            Ok(Some(path)) => path.as_ptr(),
             Err(errno) => {
                 errno.set();
                 return -1;
@@ -220,5 +228,4 @@ mod linux_only {
         let prog = prog.as_ptr();
         handle_exec(ExecResolveConfig::search_path_disabled(), prog, argv, envp)
     }
-
 }

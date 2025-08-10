@@ -19,62 +19,70 @@ use std::{
 };
 
 #[cfg(target_os = "linux")]
-fn get_fd_path(fd: RawFd) -> nix::Result<PathBuf> {
+fn get_fd_path(fd: RawFd) -> nix::Result<Option<PathBuf>> {
     if fd == libc::AT_FDCWD {
-        return getcwd();
+        return Ok(Some(getcwd()?));
     };
-    Ok(nix::fcntl::readlink(
+    match nix::fcntl::readlink(
         CString::new(format!("/proc/self/fd/{}", fd))
             .unwrap()
             .as_c_str(),
-    )?
-    .into())
+    ) {
+        Ok(path) => Ok(Some(path.into())),
+        Err(nix::Error::EBADF | nix::Error::ENOENT) => Ok(None), // invalid fd or no such file (Most likely a stdio fd)
+        Err(e) => Err(e),
+    }
 }
 
 #[cfg(target_os = "macos")]
-fn get_fd_path(fd: RawFd) -> nix::Result<PathBuf> {
+fn get_fd_path(fd: RawFd) -> nix::Result<Option<PathBuf>> {
     if fd == libc::AT_FDCWD {
-        return getcwd();
+        return Ok(Some(getcwd()?));
     };
     let mut path = std::path::PathBuf::new();
-    nix::fcntl::fcntl(
+    match nix::fcntl::fcntl(
         unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) },
         nix::fcntl::FcntlArg::F_GETPATH(&mut path),
-    )?;
-    Ok(path)
+    ) {
+        Ok(_) => Ok(Some(path)),
+        Err(nix::Error::EBADF | nix::Error::ENOENT) => Ok(None), // invalid fd or no such file (Most likely a stdio fd)
+        Err(e) => Err(e),
+    }
 }
 
 pub trait ToAbsolutePath {
-    unsafe fn to_absolute_path<R, F: FnOnce(&BStr) -> nix::Result<R>>(self, f: F)
+    unsafe fn to_absolute_path<R, F: FnOnce(Option<&BStr>) -> nix::Result<R>>(self, f: F)
     -> nix::Result<R>;
 }
 
 pub struct Fd(pub c_int);
 impl ToAbsolutePath for Fd {
-    unsafe fn to_absolute_path<R, F: FnOnce(&BStr) -> nix::Result<R>>(
+    unsafe fn to_absolute_path<R, F: FnOnce(Option<&BStr>) -> nix::Result<R>>(
         self,
         f: F,
     ) -> nix::Result<R> {
         let path = get_fd_path(self.0)?;
-        f(path.as_os_str().as_bytes().as_bstr())
+        f(path.as_ref().map(|p| p.as_os_str().as_bytes().as_bstr()))
     }
 }
 
 pub struct MaybeRelative<'a>(pub NativeStr<'a>);
 impl ToAbsolutePath for MaybeRelative<'_> {
-    unsafe fn to_absolute_path<R, F: FnOnce(&BStr) -> nix::Result<R>>(
+    unsafe fn to_absolute_path<R, F: FnOnce(Option<&BStr>) -> nix::Result<R>>(
         self,
         f: F,
     ) -> nix::Result<R> {
         let pathname = self.0.as_os_str().as_bytes();
         if pathname.first().copied() == Some(b'/') {
-            f(pathname.into())
+            f(Some(pathname.as_bstr()))
         } else {
-            let mut abs_path = get_fd_path(libc::AT_FDCWD)?;
+            let Some(mut abs_path) = get_fd_path(libc::AT_FDCWD)? else {
+                return f(None);
+            };
             if !pathname.is_empty() {
                 abs_path.push(OsStr::from_bytes(pathname));
             }
-            f(abs_path.as_os_str().as_bytes().as_bstr())
+            f(Some(abs_path.as_os_str().as_bytes().as_bstr()))
         }
     }
 }
@@ -82,7 +90,7 @@ impl ToAbsolutePath for MaybeRelative<'_> {
 pub struct PathAt(pub c_int, pub *const c_char);
 
 impl ToAbsolutePath for PathAt {
-    unsafe fn to_absolute_path<R, F: FnOnce(&BStr) -> nix::Result<R>>(
+    unsafe fn to_absolute_path<R, F: FnOnce(Option<&BStr>) -> nix::Result<R>>(
         self,
         f: F,
     ) -> nix::Result<R> {
@@ -91,17 +99,19 @@ impl ToAbsolutePath for PathAt {
         if pathname.first().copied() == Some(b'/') {
             f(pathname.into())
         } else {
-            let mut abs_path = get_fd_path(self.0)?;
+            let Some(mut abs_path) = get_fd_path(self.0)? else {
+                return f(None);
+            };
             if !pathname.is_empty() {
                 abs_path.push(OsStr::from_bytes(pathname));
             }
-            f(abs_path.as_os_str().as_bytes().as_bstr())
+            f(Some(abs_path.as_os_str().as_bytes().as_bstr()))
         }
     }
 }
 
 impl ToAbsolutePath for *const c_char {
-    unsafe fn to_absolute_path<R, F: FnOnce(&BStr) -> nix::Result<R>>(
+    unsafe fn to_absolute_path<R, F: FnOnce(Option<&BStr>) -> nix::Result<R>>(
         self,
         f: F,
     ) -> nix::Result<R> {

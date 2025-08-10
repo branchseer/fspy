@@ -1,3 +1,5 @@
+use std::ffi::CStr;
+
 use libc::FILE;
 
 use crate::{

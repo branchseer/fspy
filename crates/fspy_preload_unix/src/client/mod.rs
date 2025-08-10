@@ -194,6 +194,9 @@ impl Client {
         let mode = unsafe { mode.to_access_mode() };
         let () = unsafe {
             path.to_absolute_path(|abs_path| {
+                let Some(abs_path) = abs_path else {
+                    return Ok(Ok(()));
+                };
                 Ok(self.send(PathAccess {
                     mode,
                     path: abs_path.into(),
