@@ -4,6 +4,9 @@ node = "22.18.0"
 cargo-binstall = "1.14.1"
 "npm:corepack" = "0.34.0"
 
+[settings]
+idiomatic_version_file_enable_tools = []
+
 [tasks.clone]
 run = [
   'cd {{arg(name="dir")}} || git init {{arg(name="dir")}}',
