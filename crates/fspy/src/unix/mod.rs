@@ -227,16 +227,15 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
     let preload_lib_memfd = Arc::clone(&command.spy_inner.preload_lib_memfd);
 
     let mut exec = command.get_exec();
-    let exec_path_accesses = RefCell::new(PathAccessArena::default());
+    let mut exec_resolve_accesses = PathAccessArena::default();
     let mut pre_exec = handle_exec(
         &mut exec,
         ExecResolveConfig::search_path_enabled(None),
         &encoded_payload,
         |path_access| {
-            exec_path_accesses.borrow_mut().add(path_access);
+            exec_resolve_accesses.add(path_access);
         },
     )?;
-    let exec_path_accesses = exec_path_accesses.into_inner();
     command.set_exec(exec);
 
     let mut tokio_command = command.into_tokio_command();
@@ -263,7 +262,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild>
 
     // #[cfg(target_os = "linux")]
     let arenas_future = async move {
-        let arenas = std::iter::once(exec_path_accesses);
+        let arenas = std::iter::once(exec_resolve_accesses);
         #[cfg(target_os = "linux")]
         let arenas = arenas.chain(
             supervisor

@@ -1,10 +1,16 @@
-use std::{env::current_dir, io};
+use std::{
+    env::{current_dir, vars_os},
+    io,
+};
 
 use fspy::{AccessMode, PathAccess, PathAccessIterable, TrackedChild};
 
 async fn track_node_script(script: &str) -> io::Result<PathAccessIterable> {
     let mut command = fspy::Spy::global()?.new_command("node");
-    command.arg("-e").arg(script);
+    command
+        .arg("-e")
+        .envs(vars_os()) // https://github.com/jdx/mise/discussions/5968
+        .arg(script);
     let TrackedChild {
         mut tokio_child,
         accesses_future,
