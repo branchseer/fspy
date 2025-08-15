@@ -17,7 +17,7 @@ pub enum AccessMode {
     ReadDir,
 }
 
-#[derive(Encode, BorrowDecode, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Encode, BorrowDecode, Debug, Clone, Copy)]
 pub struct PathAccess<'a> {
     pub mode: AccessMode,
     pub path: NativeStr<'a>,

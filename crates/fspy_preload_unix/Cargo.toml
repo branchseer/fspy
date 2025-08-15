@@ -19,8 +19,6 @@ bstr = { version = "1.12.0", default-features = false }
 socket2 = "0.5.10"
 ctor = "0.4.2"
 thread_local = "1.1.9"
-
-[dependencies]
 arrayvec = "0.7.6"
 bincode = "2.0.1"
 bytemuck = { version = "1.23.0", features = ["extern_crate_alloc"] }

@@ -7,7 +7,7 @@ use ntapi::ntioapi::{
     PFILE_BASIC_INFORMATION, PFILE_NETWORK_OPEN_INFORMATION, PIO_STATUS_BLOCK,
 };
 use smallvec::SmallVec;
-use widestring::{U16CStr, U16Str};
+use widestring::{U16CStr, U16CString, U16Str};
 use winapi::{
     shared::{
         minwindef::{BOOL, DWORD, HFILE, MAX_PATH, UINT},
@@ -16,46 +16,57 @@ use winapi::{
             PVOID, ULONG, UNICODE_STRING,
         },
     },
-    um::winnt::{ACCESS_MASK, GENERIC_READ, GENERIC_WRITE},
+    um::winnt::{ACCESS_MASK, GENERIC_READ},
 };
 
 use crate::windows::{
     client::global_client,
     detour::{Detour, DetourAny},
-    winapi_utils::{access_mask_to_mode, get_path_name, get_u16_str},
+    winapi_utils::{access_mask_to_mode, combine_paths, get_path_name, get_u16_str},
 };
-
-static IS_NODE: LazyLock<bool> =
-    LazyLock::new(|| std::env::current_exe().unwrap().ends_with("node.exe"));
 
 unsafe fn to_path_access<F: FnOnce(PathAccess<'_>)>(
     desired_access: ACCESS_MASK,
     object_attributes: POBJECT_ATTRIBUTES,
     f: F,
 ) {
-    if !IS_NODE.deref() {
-        return;
+    let filename_str = unsafe { get_u16_str(&*(*object_attributes).ObjectName) };
+    let filename_slice = filename_str.as_slice();
+    let is_absolute = (filename_slice.get(0) == Some(&b'\\'.into())
+        && filename_slice.get(1) == Some(&b'\\'.into())) // \\...
+        || filename_slice.get(1) == Some(&b':'.into()); // C:...
+    if is_absolute {
+        let Ok(mut root_dir) = (unsafe { get_path_name((*object_attributes).RootDirectory) })
+        else {
+            return;
+        };
+        let root_dir_cstr = {
+            root_dir.push(0);
+            unsafe { U16CStr::from_ptr_str(root_dir.as_ptr()) }
+        };
+        let filename_cstr = U16CString::from_ustr_truncate(filename_str);
+        let abs_path = combine_paths(root_dir_cstr, filename_cstr.as_ucstr()).unwrap();
+        f(PathAccess {
+            mode: access_mask_to_mode(desired_access),
+            path: NativeStr::from_wide(abs_path.to_u16_str().as_slice()),
+        })
+    } else {
+        f(PathAccess {
+            mode: access_mask_to_mode(desired_access),
+            path: NativeStr::from_wide(filename_slice),
+        })
     }
-    let filename = unsafe { get_u16_str(&*(*object_attributes).ObjectName) };
-    let is_absolute = filename.as_slice().first() == Some(&b'\\'.into());
 
-    let dir = if !is_absolute {
-        unsafe { get_path_name((*object_attributes).RootDirectory) }.ok()
-    } else {
-        None
-    };
-    let dir = if let Some(dir) = &dir {
-        Some(NativeStr::from_wide(&dir))
-    } else {
-        None
-    };
-
-    let path_access = PathAccess {
-        mode: access_mask_to_mode(desired_access),
-        path: NativeStr::from_wide(filename.as_slice()),
-        dir,
-    };
-    f(path_access)
+    // let dir = if !is_absolute {
+    //     unsafe { get_path_name((*object_attributes).RootDirectory) }.ok()
+    // } else {
+    //     None
+    // };
+    // let dir = if let Some(dir) = &dir {
+    //     Some(NativeStr::from_wide(&dir))
+    // } else {
+    //     None
+    // };
 }
 
 thread_local! { pub static IS_DETOURING: Cell<bool> = const { Cell::new(false) }; }
@@ -118,9 +129,9 @@ static DETOUR_NT_CREATE_FILE: Detour<
             // if guard.active {
             //     let bt = backtrace::Backtrace::new();
             // unsafe {
-                to_path_access(desired_access, object_attributes, |path_access| {
-                    eprintln!("NtCreateFile {:?}", path_access.path);
-                });
+            to_path_access(desired_access, object_attributes, |path_access| {
+                eprintln!("NtCreateFile {:?}", path_access.path);
+            });
             // };
             // }
 
@@ -320,12 +331,52 @@ static DETOUR_NT_QUERY_INFORMATION_BY_NAME: Detour<
     })
 };
 
-#[allow(unused)]
+static DETOUR_NT_QUERY_DIRECTORY_FILE: Detour<
+    unsafe extern "system" fn(
+        object_attributes: POBJECT_ATTRIBUTES,
+        io_status_block: PIO_STATUS_BLOCK,
+        file_information: PVOID,
+        length: ULONG,
+        file_information_class: FILE_INFORMATION_CLASS,
+    ) -> HFILE,
+> = unsafe {
+    Detour::new(c"NtQueryInformationByName", NtQueryInformationByName, {
+        unsafe extern "system" fn new_fn(
+            object_attributes: POBJECT_ATTRIBUTES,
+            io_status_block: PIO_STATUS_BLOCK,
+            file_information: PVOID,
+            length: ULONG,
+            file_information_class: FILE_INFORMATION_CLASS,
+        ) -> HFILE {
+            let guard = DetourGuard::new();
+            if guard.active {
+                let bt = backtrace::Backtrace::new();
+                unsafe {
+                    to_path_access(GENERIC_READ, object_attributes, |path_access| {
+                        eprintln!("NtQueryInformationByName {:?} {:?}", path_access.path, bt);
+                        // global_client().send(path_access);
+                    })
+                };
+            }
+            unsafe {
+                (DETOUR_NT_QUERY_INFORMATION_BY_NAME.real())(
+                    object_attributes,
+                    io_status_block,
+                    file_information,
+                    length,
+                    file_information_class,
+                )
+            }
+        }
+        new_fn
+    })
+};
+
 pub const DETOURS: &[DetourAny] = &[
-    // DETOUR_NT_CREATE_FILE.as_any(),
-    // DETOUR_NT_OPEN_FILE.as_any(),
-    // DETOUR_NT_QUERY_ATRRIBUTES_FILE.as_any(),
-    // DETOUR_NT_FULL_QUERY_ATRRIBUTES_FILE.as_any(),
-    // DETOUR_NT_OPEN_SYMBOLIC_LINK_OBJECT.as_any(),
-    // DETOUR_NT_QUERY_INFORMATION_BY_NAME.as_any(),
+    DETOUR_NT_CREATE_FILE.as_any(),
+    DETOUR_NT_OPEN_FILE.as_any(),
+    DETOUR_NT_QUERY_ATRRIBUTES_FILE.as_any(),
+    DETOUR_NT_FULL_QUERY_ATRRIBUTES_FILE.as_any(),
+    DETOUR_NT_OPEN_SYMBOLIC_LINK_OBJECT.as_any(),
+    DETOUR_NT_QUERY_INFORMATION_BY_NAME.as_any(),
 ];

@@ -1,25 +1,32 @@
 use std::{
-    convert::Infallible, env::temp_dir, ffi::{c_char, c_void, CStr}, fs::{create_dir, File, OpenOptions}, io, mem, os::windows::{ffi::OsStrExt, io::AsRawHandle, process::ChildExt as _}, path::Path, ptr::{null, null_mut}, str::from_utf8, sync::Arc
+    convert::Infallible,
+    env::temp_dir,
+    ffi::{CStr, c_char, c_void},
+    fs::{File, OpenOptions, create_dir},
+    io, mem,
+    os::windows::{ffi::OsStrExt, io::AsRawHandle, process::ChildExt as _},
+    path::Path,
+    ptr::{null, null_mut},
+    str::from_utf8,
+    sync::Arc,
 };
 
+use crate::{TrackedChild, arena::PathAccessArena, command::Command};
 use bincode::borrow_decode_from_slice;
+use const_format::formatcp;
 use fspy_shared::{
     ipc::{BINCODE_CONFIG, PathAccess},
     windows::{PAYLOAD_ID, Payload},
 };
 use futures_util::{
-    Stream, TryStreamExt,
-    future::{join, try_join},
+    FutureExt, Stream,
     stream::try_unfold,
 };
 use ms_detours::{DetourCopyPayloadToProcess, DetourUpdateProcessWithDll};
 use tokio::{
     io::AsyncReadExt,
     net::windows::named_pipe::{NamedPipeServer, PipeMode, ServerOptions},
-    process::{Child as TokioChild, Command as TokioCommand},
-    sync::{mpsc, oneshot},
 };
-use crate::command::Command;
 // use detours_sys2::{DetourAttach,};
 
 use winapi::{
@@ -28,15 +35,22 @@ use winapi::{
         handleapi::DuplicateHandle,
         processthreadsapi::{GetCurrentProcess, ResumeThread},
         winbase::CREATE_SUSPENDED,
-        winnt::{DUPLICATE_SAME_ACCESS, GENERIC_WRITE},
+        winnt::{DUPLICATE_SAME_ACCESS},
     },
 };
 // use windows_sys::Win32::System::Threading::{CREATE_SUSPENDED, ResumeThread};
 use winsafe::co::{CP, WC};
+use xxhash_rust::const_xxh3::xxh3_128;
 
 use crate::fixture::{Fixture, fixture};
 
-const INTERPOSE_CDYLIB: Fixture = fixture!("fspy_interpose");
+
+const PRELOAD_CDYLIB_BINARY: &[u8] = include_bytes!(env!("CARGO_CDYLIB_FILE_FSPY_PRELOAD_WINDOWS"));
+const INTERPOSE_CDYLIB: Fixture =  Fixture {
+            name: "fsyp_preload",
+            content: PRELOAD_CDYLIB_BINARY,
+            hash: formatcp!("{:x}", xxh3_128(PRELOAD_CDYLIB_BINARY)),
+        };
 
 fn luid() -> io::Result<u64> {
     let mut luid = unsafe { std::mem::zeroed::<winapi::um::winnt::LUID>() };
@@ -63,25 +77,29 @@ fn named_pipe_server_stream(
     ))
 }
 
-pub struct PathAccessIter {
-    pipe_receiver: NamedPipeServer,
+pub struct PathAccessIterable {
+    arena: PathAccessArena,
+    // pipe_receiver: NamedPipeServer,
 }
 
 const MESSAGE_MAX_LEN: usize = 4096;
 
-impl PathAccessIter {
-    pub async fn next<'a>(&mut self, buf: &'a mut Vec<u8>) -> io::Result<Option<PathAccess<'a>>> {
-        buf.resize(MESSAGE_MAX_LEN, 0);
-        let n = self.pipe_receiver.read(buf.as_mut_slice()).await?;
-        if n == 0 {
-            return Ok(None);
-        }
-        let msg = &buf[..n];
-        let (path_access, decoded_len) =
-            borrow_decode_from_slice::<'_, PathAccess, _>(msg, BINCODE_CONFIG).unwrap();
-        assert_eq!(decoded_len, msg.len());
-        Ok(Some(path_access))
+impl PathAccessIterable {
+    pub fn iter(&self) -> impl Iterator<Item = PathAccess<'_>> {
+        self.arena.borrow_accesses().iter().copied()
     }
+    //     pub async fn next<'a>(&mut self, buf: &'a mut Vec<u8>) -> io::Result<Option<PathAccess<'a>>> {
+    //         buf.resize(MESSAGE_MAX_LEN, 0);
+    //         let n = self.pipe_receiver.read(buf.as_mut_slice()).await?;
+    //         if n == 0 {
+    //             return Ok(None);
+    //         }
+    //         let msg = &buf[..n];
+    //         let (path_access, decoded_len) =
+    //             borrow_decode_from_slice::<'_, PathAccess, _>(msg, BINCODE_CONFIG).unwrap();
+    //         assert_eq!(decoded_len, msg.len());
+    //         Ok(Some(path_access))
+    //     }
 }
 
 // pub struct TracedProcess {
@@ -95,8 +113,7 @@ pub struct SpyInner {
 }
 
 impl SpyInner {
-    pub fn init_in_dir(path: &Path) -> io::Result<Self> {
-        
+    pub fn init_in(path: &Path) -> io::Result<Self> {
         let dll_path = INTERPOSE_CDYLIB.write_to(&path, ".dll").unwrap();
 
         let wide_dll_path = dll_path.as_os_str().encode_wide().collect::<Vec<u16>>();
@@ -106,13 +123,15 @@ impl SpyInner {
 
         asni_dll_path.push(0);
 
-        let asni_dll_path_with_nul = unsafe { CStr::from_bytes_with_nul_unchecked(asni_dll_path.as_slice()) };
-        Ok(Self { asni_dll_path_with_nul: asni_dll_path_with_nul.into() })
+        let asni_dll_path_with_nul =
+            unsafe { CStr::from_bytes_with_nul_unchecked(asni_dll_path.as_slice()) };
+        Ok(Self {
+            asni_dll_path_with_nul: asni_dll_path_with_nul.into(),
+        })
     }
 }
 
-
-pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, PathAccessIter)> {
+pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<TrackedChild> {
     let asni_dll_path_with_nul = Arc::clone(&command.spy_inner.asni_dll_path_with_nul);
     let mut command = command.into_tokio_command();
 
@@ -120,7 +139,7 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, 
 
     let pipe_name = format!(r"\\.\pipe\fspy_ipc_{:x}", luid()?);
 
-    let pipe_receiver = ServerOptions::new()
+    let mut pipe_receiver = ServerOptions::new()
         .pipe_mode(PipeMode::Message)
         .access_outbound(false)
         .access_inbound(true)
@@ -134,7 +153,26 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, 
 
     connect_fut.await?;
 
-    let path_access_stream = PathAccessIter { pipe_receiver };
+    let accesses_future = async move {
+        let mut arena = PathAccessArena::default();
+
+        let mut buf = [0u8; MESSAGE_MAX_LEN];
+        loop {
+            let n = pipe_receiver.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            let msg = &buf[..n];
+            let (path_access, decoded_len) =
+                borrow_decode_from_slice::<'_, PathAccess, _>(msg, BINCODE_CONFIG).unwrap();
+            assert_eq!(decoded_len, msg.len());
+            arena.add(path_access);
+        }
+        io::Result::Ok(PathAccessIterable { arena })
+    }
+    .boxed();
+
+    // let path_access_stream = PathAccessIterable { pipe_receiver };
 
     let child = command.spawn_with(|std_command| {
         let std_child = std_command.spawn()?;
@@ -191,8 +229,8 @@ pub(crate) async fn spawn_impl(mut command: Command) -> io::Result<(TokioChild, 
     })?;
 
     drop(pipe_sender);
-    Ok((
-        child,
-        path_access_stream,
-    ))
+    Ok(TrackedChild {
+        tokio_child: child,
+        accesses_future,
+    })
 }

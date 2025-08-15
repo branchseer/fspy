@@ -3,6 +3,7 @@ pub(crate) mod detour;
 mod detours;
 mod winapi_utils;
 
+
 use std::{env::current_exe, slice};
 
 use detours::DETOURS;

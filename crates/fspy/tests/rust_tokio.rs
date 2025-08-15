@@ -1,5 +1,6 @@
 use std::{env::current_dir, io, path::Path};
 
+use dunce::simplified;
 use fspy::{AccessMode, PathAccess, PathAccessIterable, TrackedChild};
 use tokio::fs::OpenOptions;
 
@@ -44,10 +45,18 @@ async fn spawn_with_id(id: &str) -> io::Result<PathAccessIterable> {
     Ok(acceses)
 }
 
+
 #[track_caller]
-fn assert_contains(accesses: &PathAccessIterable, expected: &PathAccess<'_>) {
-    accesses.iter().find(|access| access == expected).unwrap();
+fn assert_contains(accesses: &PathAccessIterable, expected_path: &Path, expected_mode: AccessMode) {
+    accesses
+        .iter()
+        .find(|access| {
+            simplified(Path::new(&access.path.to_cow_os_str())) == simplified(expected_path)
+                && access.mode == expected_mode
+        })
+        .unwrap();
 }
+
 
 #[tokio::test]
 async fn open_read() -> io::Result<()> {
@@ -63,10 +72,8 @@ async fn open_read() -> io::Result<()> {
     .await?;
     assert_contains(
         &accesses,
-        &PathAccess {
-            mode: AccessMode::Read,
-            path: current_dir().unwrap().join("hello").as_path().into(),
-        },
+        current_dir().unwrap().join("hello").as_path(),
+            AccessMode::Read,
     );
 
     Ok(())
@@ -88,13 +95,10 @@ async fn open_write() -> io::Result<()> {
     .await?;
     assert_contains(
         &accesses,
-        &PathAccess {
-            mode: AccessMode::Write,
-            path: Path::new(env!("CARGO_TARGET_TMPDIR"))
+        Path::new(env!("CARGO_TARGET_TMPDIR"))
                 .join("hello")
-                .as_path()
-                .into(),
-        },
+                .as_path(),
+           AccessMode::Write,
     );
 
     Ok(())
@@ -116,13 +120,10 @@ async fn readdir() -> io::Result<()> {
     .await?;
     assert_contains(
         &accesses,
-        &PathAccess {
-            mode: AccessMode::ReadDir,
-            path: Path::new(env!("CARGO_TARGET_TMPDIR"))
+         Path::new(env!("CARGO_TARGET_TMPDIR"))
                 .join("hello")
-                .as_path()
-                .into(),
-        },
+                .as_path(),
+ AccessMode::ReadDir,
     );
 
     Ok(())

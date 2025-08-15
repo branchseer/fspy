@@ -6,13 +6,16 @@ use widestring::{U16CStr, U16Str};
 use winapi::{
     ctypes::c_long,
     shared::{
-        minwindef::{BOOL, FALSE, MAX_PATH},
-        ntdef::{HANDLE, UNICODE_STRING},
-        winerror::NO_ERROR,
+        minwindef::{BOOL, FALSE, HLOCAL, MAX_PATH, ULONG},
+        ntdef::{HANDLE, HRESULT, PCWSTR, PWSTR, UNICODE_STRING},
+        winerror::{NO_ERROR, S_OK},
     },
-    um::{fileapi::GetFinalPathNameByHandleW, winnt::{ACCESS_MASK, GENERIC_READ, GENERIC_WRITE}},
+    um::{
+        fileapi::GetFinalPathNameByHandleW,
+        winnt::{ACCESS_MASK, GENERIC_READ, GENERIC_WRITE},
+    },
 };
-use winsafe::GetLastError;
+use winsafe::{co, GetLastError};
 
 pub fn ck(b: BOOL) -> winsafe::SysResult<()> {
     if b == FALSE {
@@ -76,8 +79,6 @@ pub unsafe fn get_path_name(handle: HANDLE) -> winsafe::SysResult<SmallVec<u16, 
     Ok(path)
 }
 
-
-
 pub fn access_mask_to_mode(desired_access: ACCESS_MASK) -> AccessMode {
     let has_write = (desired_access & GENERIC_WRITE) != 0;
     let has_read = (desired_access & GENERIC_READ) != 0;
@@ -92,6 +93,47 @@ pub fn access_mask_to_mode(desired_access: ACCESS_MASK) -> AccessMode {
     }
 }
 
+unsafe extern "system" {
+    fn LocalFree(hmem: HLOCAL) -> HLOCAL;
+    fn PathAllocCombine(
+        pszpathin: PCWSTR,
+        pszmore: PCWSTR,
+        dwflags: ULONG,
+        ppszpathout: *mut PWSTR,
+    ) -> HRESULT;
+}
+
+pub struct HeapPath(PWSTR);
+impl HeapPath {
+    pub fn to_u16_str(&self) -> &U16Str {
+        unsafe { U16CStr::from_ptr_str(self.0).as_ustr() }
+    }
+}
+impl Drop for HeapPath {
+    fn drop(&mut self) {
+        unsafe { LocalFree(self.0.cast()) };
+    }
+}
+
+pub fn combine_paths(
+    path1: &U16CStr,
+    path2: &U16CStr,
+) -> winsafe::SysResult<HeapPath> {
+    const PATHCCH_ALLOW_LONG_PATHS: ULONG = 0x00000001;
+    let mut out = std::ptr::null_mut();
+    let hr = unsafe {
+        PathAllocCombine(
+            path1.as_ptr(),
+            path2.as_ptr(),
+            PATHCCH_ALLOW_LONG_PATHS, /*PATHCOMBINE_DEFAULT*/
+            &mut out,
+        )
+    };
+    if hr != S_OK {
+        return Err(unsafe { co::ERROR::from_raw(hr.try_into().unwrap()) });
+    }
+    Ok(HeapPath(out))
+}
 
 #[cfg(test)]
 mod tests {
@@ -120,5 +162,16 @@ mod tests {
     #[test]
     fn test_get_path_name_long() {
         test_get_path_name(str::repeat("a", 255).as_str())
+    }
+
+    #[test]
+    fn test_combine_path() {
+        use super::combine_paths;
+        use widestring::u16cstr;
+
+        let path1 = u16cstr!("C:\\foo");
+        let path2 = u16cstr!("bar\\baz");
+        let combined = combine_paths(path1, path2).unwrap();
+        assert_eq!(combined.to_u16_str(), u16cstr!("C:\\foo\\bar\\baz"));
     }
 }

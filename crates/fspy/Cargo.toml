@@ -13,7 +13,6 @@ derive-where = "1.4.0"
 event_iterator = "0.2.2"
 futures-util = "0.3.31"
 libc = "0.2.171"
-syscalls = { version = "0.6.18", default-features = false, features = ["std"]}
 ref-cast = "1.0.24"
 tempfile = "3.19.1"
 # async-send-fd = { version = "1.2.0", features = ["tokio"] }
@@ -25,6 +24,9 @@ bstr = { version = "1.12.0", default-features = false }
 which = "7.0.3"
 fspy_shared = { workspace = true }
 slab = "0.4.9"
+allocator-api2 = { version = "0.2.21", default-features = false, features = [
+    "alloc",
+] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tokio-seqpacket = "0.8.0"
@@ -34,13 +36,11 @@ seccomp_unotify = { workspace = true, features = ["supervisor"]}
 blink-alloc =  { version = "0.3.1", features = ["sync"]}
 thread_local = "1.1.9"
 tokio = { version = "1.44.2", features = ["bytes"] }
+syscalls = { version = "0.6.18", default-features = false, features = ["std"]}
 
 [target.'cfg(unix)'.dependencies]
 fspy_shared_unix = { workspace = true }
 fspy_preload_unix = { workspace = true }
-allocator-api2 = { version = "0.2.21", default-features = false, features = [
-    "alloc",
-] }
 nix = { version = "0.30.1", features = ["fs", "process", "socket", "feature"] }
 passfd = { git = "https://github.com/polachok/passfd", features = [
     "async",
@@ -50,8 +50,12 @@ memmap2 = "0.9.7"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 phf = { version = "0.11.3", features = ["macros"] }
+
+
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
 xxhash-rust = { version = "0.8.15", features = ["const_xxh3"] }
 const_format = { version = "0.2.34", features = ["fmt"] }
+
 
 [target.'cfg(target_os = "windows")'.dependencies]
 ms-detours = "4.0.5"
@@ -61,11 +65,13 @@ winapi = { version = "0.3.9", features = [
     "securitybaseapi",
     "handleapi",
 ] }
-
+fspy_preload_windows = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 tempfile = "3.19.1"
+
 [dev-dependencies]
+dunce = "1.0.5"
 tokio = { version = "1.44.2", features = [
     "rt-multi-thread",
     "macros",

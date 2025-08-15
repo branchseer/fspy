@@ -1,3 +1,5 @@
+#[cfg(windows)]
+use std::ffi::OsString;
 #[cfg(unix)]
 use std::sync::Arc;
 use std::{borrow::Cow, fmt::Debug};
@@ -9,7 +11,7 @@ use bincode::Decode;
 use bincode::{BorrowDecode, Encode};
 use bstr::BStr;
 
-/// Similar to OsStr, but requires no copy for encode/decode
+/// Similar to OsStr, but requires no copy for encode/borrow_decode
 #[derive(Encode, BorrowDecode, Clone, Copy, PartialEq, Eq)]
 pub struct NativeStr<'a> {
     #[cfg(windows)]
@@ -17,13 +19,16 @@ pub struct NativeStr<'a> {
     data: &'a [u8],
 }
 
+
+#[cfg(unix)]
 impl<'a> From<&'a Path> for NativeStr<'a> {
-    #[cfg(unix)]
     fn from(value: &'a Path) -> Self {
         use std::os::unix::ffi::OsStrExt as _;
         Self::from_bytes(value.as_os_str().as_bytes())
     }
 }
+
+#[cfg(unix)]
 impl<'a> From<&'a str> for NativeStr<'a> {
     #[cfg(unix)]
     fn from(value: &'a str) -> Self {

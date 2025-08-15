@@ -73,7 +73,6 @@ static DETOUR_CREATE_PROCESS_W: Detour<
                         path: NativeStr::from_wide(
                             U16CStr::from_ptr_str(lp_application_name).as_slice(),
                         ),
-                        dir: None,
                     });
                 }
             }
@@ -199,7 +198,6 @@ static DETOUR_CREATE_PROCESS_A: Detour<
                         path: NativeStr::from_bytes(
                             CStr::from_ptr(lp_application_name).to_bytes(),
                         ),
-                        dir: None,
                     });
                 }
             }

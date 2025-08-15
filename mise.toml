@@ -1,7 +1,6 @@
 [tools]
-hyperfine = "1.19.0"
 node = "22.18.0"
-cargo-binstall = "1.14.1"
+# cargo-binstall = "1.14.1"
 "npm:corepack" = "0.34.0"
 
 [settings]

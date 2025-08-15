@@ -99,7 +99,7 @@ impl SpyInner {
         let bash_path = macos_fixtures::OILS_BINARY.write_to(&dir, "")?;
 
         const PRELOAD_CDYLIB: Fixture = Fixture {
-            name: "fsyp_preload.dylib",
+            name: "fspy_preload",
             content: PRELOAD_CDYLIB_BINARY,
             hash: formatcp!("{:x}", xxh3_128(PRELOAD_CDYLIB_BINARY)),
         };

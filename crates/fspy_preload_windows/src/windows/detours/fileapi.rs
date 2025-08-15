@@ -73,7 +73,7 @@ static DETOUR_CREATE_FILE_W: Detour<
                     sender.send(PathAccess {
                         mode: access_mask_to_mode(dw_desired_access),
                         path: NativeStr::from_wide(filename.as_slice()),
-                        dir: None,
+                        
                     })
                 }
             }
@@ -121,7 +121,7 @@ static DETOUR_CREATE_FILE_A: Detour<
                     sender.send(PathAccess {
                         mode: access_mask_to_mode(dw_desired_access),
                         path: NativeStr::from_bytes(filename.to_bytes()),
-                        dir: None,
+                        
                     })
                 };
             }
@@ -165,7 +165,7 @@ static DETOUR_CREATE_FILE_2: Detour<
                     sender.send(PathAccess {
                         mode: access_mask_to_mode(dw_desired_access),
                         path: NativeStr::from_wide(filename.as_slice()),
-                        dir: None,
+                        
                     })
                 };
             }
@@ -219,7 +219,7 @@ static DETOUR_OPEN_FILE: Detour<
                             AccessMode::Read
                         },
                         path: NativeStr::from_bytes(filename.to_bytes()),
-                        dir: None,
+                        
                     })
                 };
             }
@@ -242,7 +242,7 @@ static DETOUR_GET_FILE_ATTRIBUTES_W: Detour<
                     sender.send(PathAccess {
                         mode: AccessMode::Read,
                         path: NativeStr::from_wide(filename.as_slice()),
-                        dir: None,
+                        
                     })
                 };
             }
@@ -265,7 +265,7 @@ static DETOUR_GET_FILE_ATTRIBUTES_A: Detour<
                     sender.send(PathAccess {
                         mode: AccessMode::Read,
                         path: NativeStr::from_bytes(filename.to_bytes()),
-                        dir: None,
+                        
                     });
                 }
             }
@@ -296,7 +296,7 @@ static DETOUR_GET_FILE_ATTRIBUTES_EX_W: Detour<
                     sender.send(PathAccess {
                         mode: AccessMode::Read,
                         path: NativeStr::from_wide(filename.as_slice()),
-                        dir: None,
+                        
                     });
                 }
             }
@@ -332,7 +332,7 @@ static DETOUR_GET_FILE_ATTRIBUTES_EX_A: Detour<
                     sender.send(PathAccess {
                         mode: AccessMode::Read,
                         path: NativeStr::from_bytes(filename.to_bytes()),
-                        dir: None,
+                        
                     });
                 }
             }
@@ -373,7 +373,7 @@ static DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_W: Detour<
                         sender.send(PathAccess {
                             mode: AccessMode::Read,
                             path: NativeStr::from_wide(filename.as_slice()),
-                            dir: None,
+                            
                         });
                     }
                 }
@@ -417,7 +417,7 @@ static DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_A: Detour<
                         sender.send(PathAccess {
                             mode: AccessMode::Read,
                             path: NativeStr::from_bytes(filename.to_bytes()),
-                            dir: None,
+                            
                         });
                     }
                 }
@@ -446,7 +446,7 @@ static DETOUR_DELETE_FILE_W: Detour<unsafe extern "system" fn(lp_file_name: LPCW
                     sender.send(PathAccess {
                         mode: AccessMode::Write,
                         path: NativeStr::from_wide(filename.as_slice()),
-                        dir: None,
+                        
                     });
                 }
             }
@@ -466,7 +466,7 @@ static DETOUR_DELETE_FILE_A: Detour<unsafe extern "system" fn(lp_file_name: LPCS
                     sender.send(PathAccess {
                         mode: AccessMode::Write,
                         path: NativeStr::from_bytes(filename.to_bytes()),
-                        dir: None,
+                        
                     });
                 }
             }
@@ -476,6 +476,30 @@ static DETOUR_DELETE_FILE_A: Detour<unsafe extern "system" fn(lp_file_name: LPCS
         new_fn
     })
 };
+
+
+fn get_parent_wide(path: &[u16]) -> &[u16] {
+    let Some(mut last_slash_pos) = path.iter()
+        .rposition(|&c| c == 0x5c || c == 0x2f) else {
+            return path;
+        };
+
+    while let Some(pos) = last_slash_pos.checked_sub(1) && matches!(path.get(pos), Some(0x5c | 0x2f)) {
+        last_slash_pos = pos;
+    }
+    &path[..last_slash_pos]
+}
+fn get_parent(path: &[u8]) -> &[u8] {
+    let Some(mut last_slash_pos) = path.iter()
+        .rposition(|&c| c == 0x5c || c == 0x2f) else {
+            return path;
+        };
+
+    while let Some(pos) = last_slash_pos.checked_sub(1) && matches!(path.get(pos), Some(0x5c | 0x2f)) {
+        last_slash_pos = pos;
+    }
+    &path[..last_slash_pos]
+}
 
 static DETOUR_FIND_FIRST_FILE_W: Detour<
     unsafe extern "system" fn(
@@ -493,9 +517,9 @@ static DETOUR_FIND_FIRST_FILE_W: Detour<
                 let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
                 unsafe {
                     sender.send(PathAccess {
-                        mode: AccessMode::Read,
-                        path: NativeStr::from_wide(filename.as_slice()),
-                        dir: None,
+                        mode: AccessMode::ReadDir,
+                        path: NativeStr::from_wide(get_parent_wide(filename.as_slice())),
+                        
                     });
                 }
             }
@@ -530,9 +554,9 @@ static DETOUR_FIND_FIRST_FILE_EX_W: Detour<
                 let filename = unsafe { U16CStr::from_ptr_str(lp_file_name) };
                 unsafe {
                     sender.send(PathAccess {
-                        mode: AccessMode::Read,
-                        path: NativeStr::from_wide(filename.as_slice()),
-                        dir: None,
+                        mode: AccessMode::ReadDir,
+                        path: NativeStr::from_wide(get_parent_wide(filename.as_slice())),
+                        
                     });
                 }
             }
@@ -568,9 +592,9 @@ static DETOUR_FIND_FIRST_FILE_A: Detour<
                 let filename = unsafe { CStr::from_ptr(lp_file_name) };
                 unsafe {
                     sender.send(PathAccess {
-                        mode: AccessMode::Read,
-                        path: NativeStr::from_bytes(filename.to_bytes()),
-                        dir: None,
+                        mode: AccessMode::ReadDir,
+                        path: NativeStr::from_bytes(get_parent(filename.to_bytes())),
+                        
                     });
                 }
             }
@@ -604,9 +628,9 @@ static DETOUR_FIND_FIRST_FILE_EX_A: Detour<
                 let filename = unsafe { CStr::from_ptr(lp_file_name) };
                 unsafe {
                     sender.send(PathAccess {
-                        mode: AccessMode::Read,
-                        path: NativeStr::from_bytes(filename.to_bytes()),
-                        dir: None,
+                        mode: AccessMode::ReadDir,
+                        path: NativeStr::from_bytes(get_parent(filename.to_bytes())),
+                        
                     });
                 }
             }
@@ -650,7 +674,7 @@ static DETOUR_GET_FILE_INFORMATION_BY_NAME: Detour<
                     sender.send(PathAccess {
                         mode: AccessMode::Read,
                         path: NativeStr::from_wide(filename.as_slice()),
-                        dir: None,
+                        
                     });
                 }
             }
@@ -669,21 +693,21 @@ static DETOUR_GET_FILE_INFORMATION_BY_NAME: Detour<
 };
 
 pub const DETOURS: &[DetourAny] = &[
-    DETOUR_CREATE_FILE_W.as_any(),
-    DETOUR_CREATE_FILE_A.as_any(),
-    DETOUR_OPEN_FILE.as_any(),
-    DETOUR_CREATE_FILE_2.as_any(),
-    DETOUR_GET_FILE_ATTRIBUTES_W.as_any(),
-    DETOUR_GET_FILE_ATTRIBUTES_A.as_any(),
-    DETOUR_GET_FILE_ATTRIBUTES_EX_W.as_any(),
-    DETOUR_GET_FILE_ATTRIBUTES_EX_A.as_any(),
-    DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_W.as_any(),
-    DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_A.as_any(),
-    DETOUR_DELETE_FILE_W.as_any(),
-    DETOUR_DELETE_FILE_A.as_any(),
-    DETOUR_FIND_FIRST_FILE_W.as_any(),
-    DETOUR_FIND_FIRST_FILE_EX_W.as_any(),
-    DETOUR_FIND_FIRST_FILE_A.as_any(),
-    DETOUR_FIND_FIRST_FILE_EX_A.as_any(),
-    DETOUR_GET_FILE_INFORMATION_BY_NAME.as_any(),
+    // DETOUR_CREATE_FILE_W.as_any(),
+    // DETOUR_CREATE_FILE_A.as_any(),
+    // DETOUR_OPEN_FILE.as_any(),
+    // DETOUR_CREATE_FILE_2.as_any(),
+    // DETOUR_GET_FILE_ATTRIBUTES_W.as_any(),
+    // DETOUR_GET_FILE_ATTRIBUTES_A.as_any(),
+    // DETOUR_GET_FILE_ATTRIBUTES_EX_W.as_any(),
+    // DETOUR_GET_FILE_ATTRIBUTES_EX_A.as_any(),
+    // DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_W.as_any(),
+    // DETOUR_GET_FILE_ATTRIBUTES_TRANSACTED_A.as_any(),
+    // DETOUR_DELETE_FILE_W.as_any(),
+    // DETOUR_DELETE_FILE_A.as_any(),
+    // DETOUR_FIND_FIRST_FILE_W.as_any(),
+    // DETOUR_FIND_FIRST_FILE_EX_W.as_any(),
+    // DETOUR_FIND_FIRST_FILE_A.as_any(),
+    // DETOUR_FIND_FIRST_FILE_EX_A.as_any(),
+    // DETOUR_GET_FILE_INFORMATION_BY_NAME.as_any(),
 ];
