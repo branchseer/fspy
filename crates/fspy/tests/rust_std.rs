@@ -1,15 +1,14 @@
 mod test_utils;
 
-use test_utils::{assert_contains, track_child};
+use fspy::{AccessMode, Command};
 use std::{
     env::current_dir,
-    ffi::OsStr,
     fs::{File, OpenOptions},
-    io,
+    io::{self, Stdin},
     path::Path,
+    process::Stdio,
 };
-
-use fspy::{AccessMode, PathAccess, PathAccessIterable, TrackedChild};
+use test_utils::{assert_contains, track_child};
 
 #[tokio::test]
 async fn open_read() -> io::Result<()> {
@@ -57,6 +56,37 @@ async fn readdir() -> io::Result<()> {
             .join("hello")
             .as_path(),
         AccessMode::ReadDir,
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn subprocess() -> io::Result<()> {
+    let accesses = track_child!({
+        let mut command = if cfg!(windows) {
+            let mut command = std::process::Command::new("cmd");
+            command.arg("/c").arg("type hello");
+            command
+        } else {
+            let mut command = std::process::Command::new("/bin/sh");
+            command.arg("-c").arg("cat hello");
+            command
+        };
+        command
+            .stdout(Stdio::null())
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap()
+            .wait()
+            .unwrap();
+    })
+    .await?;
+    assert_contains(
+        &accesses,
+        current_dir().unwrap().join("hello").as_path(),
+        AccessMode::Read,
     );
 
     Ok(())
