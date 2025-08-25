@@ -1,9 +1,11 @@
+mod test_utils;
+
+use test_utils::assert_contains;
 use std::{
     env::{current_dir, vars_os},
     io, path::Path,
 };
 
-use dunce::simplified;
 use fspy::{AccessMode, PathAccess, PathAccessIterable, TrackedChild};
 
 async fn track_node_script(script: &str) -> io::Result<PathAccessIterable> {
@@ -23,19 +25,6 @@ async fn track_node_script(script: &str) -> io::Result<PathAccessIterable> {
     Ok(acceses)
 }
 
-
-#[track_caller]
-fn assert_contains(accesses: &PathAccessIterable, expected_path: &Path, expected_mode: AccessMode) {
-    accesses
-        .iter()
-        .find(|access| {
-            dbg!(&access);
-            simplified(Path::new(&access.path.to_cow_os_str())) == simplified(expected_path)
-                && access.mode == expected_mode
-        })
-        .unwrap();
-}
-
 #[tokio::test]
 async fn read_sync() -> io::Result<()> {
     let accesses = track_node_script("try { fs.readFileSync('hello') } catch {}").await?;
@@ -48,10 +37,10 @@ async fn read_sync() -> io::Result<()> {
 }
 #[tokio::test]
 async fn read_dir_sync() -> io::Result<()> {
-    let accesses = track_node_script("try { fs.readdirSync('hello') } catch {}").await?;
+    let accesses = track_node_script("try { fs.readdirSync('C:/Users') } catch {}").await?;
     assert_contains(
         &accesses,
-        current_dir().unwrap().join("hello").as_path(),
+        Path::new("C:/Users"),
             AccessMode::ReadDir,
     );
     Ok(())

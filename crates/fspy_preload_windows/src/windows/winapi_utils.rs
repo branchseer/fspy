@@ -93,6 +93,7 @@ pub fn access_mask_to_mode(desired_access: ACCESS_MASK) -> AccessMode {
     }
 }
 
+
 unsafe extern "system" {
     fn LocalFree(hmem: HLOCAL) -> HLOCAL;
     fn PathAllocCombine(

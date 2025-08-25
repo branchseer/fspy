@@ -42,27 +42,25 @@ pub struct Client<'a> {
 
 unsafe fn write_pipe_message(pipe: HANDLE, msg: &[u8]) {
     let mut bytes_written: DWORD = 0;
-    let bytes_len: DWORD = msg.len().try_into().unwrap();
-    let ret = unsafe {
-        WriteFile(
-            pipe,
-            msg.as_ptr().cast(),
-            msg.len().try_into().unwrap(),
-            &mut bytes_written,
-            null_mut(),
-        )
-    };
-    assert_ne!(
-        ret,
-        0,
-        "fspy WriteFile to pipe failed: {:?}",
-        GetLastError()
-    );
-    assert_eq!(
-        bytes_written, bytes_len,
-        "fspy WriteFile to pipe not completed: {} out of {} bytes written",
-        bytes_written, bytes_len
-    );
+    let mut remaining_msg = msg;
+    while !remaining_msg.is_empty() {
+        let ret = unsafe {
+            WriteFile(
+                pipe,
+                msg.as_ptr().cast(),
+                msg.len().try_into().unwrap(),
+                &mut bytes_written,
+                null_mut(),
+            )
+        };
+        assert_ne!(
+            ret,
+            0,
+            "fspy WriteFile to pipe failed: {:?}",
+            GetLastError()
+        );
+        remaining_msg = &remaining_msg[bytes_written as usize..];
+    }
 }
 
 stack_once_token!(PATH_ACCESS_ONCE);
@@ -97,6 +95,14 @@ impl<'a> Client<'a> {
         for msg in self.messages.iter() {
             unsafe { write_pipe_message(self.payload.pipe_handle as _, &msg) };
         }
+    }
+
+    pub unsafe fn send(&self, access: PathAccess<'_>) {
+        // TODO: send cwd as dir if the path is relative
+        let mut buf = SmallVec::<u8, 256>::new();
+        encode_into_std_write(access, &mut buf, BINCODE_CONFIG).unwrap();
+
+        self.messages.insert(buf);
     }
     pub fn sender(&self) -> Option<PathAccessSender> {
         let guard = PATH_ACCESS_ONCE.try_enter()?;
