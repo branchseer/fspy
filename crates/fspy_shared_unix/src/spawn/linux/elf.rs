@@ -44,13 +44,13 @@ fn get_interp(executable: &[u8]) -> nix::Result<Option<&BStr>> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::{read, read_dir};
+    use std::fs::read;
 
     use super::*;
     #[test]
     fn dynamic_executable() {
         assert_eq!(
-            is_dynamically_linked_to_libc(read("/home/vscode/esbuild").unwrap()).unwrap(),
+            is_dynamically_linked_to_libc(read("/bin/sh").unwrap()).unwrap(),
             true
         );
     }
