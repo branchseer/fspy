@@ -292,6 +292,7 @@ pub unsafe fn handle_open(path: impl ToAbsolutePath, mode: impl ToAccessMode) {
     }
 }
 
+#[cfg(not(test))]
 #[ctor::ctor]
 fn init_client() {
     CLIENT.set(Client::from_env()).unwrap();
