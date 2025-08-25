@@ -42,10 +42,10 @@ jobs:
         curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain none
         echo "export CARGO_TARGET_DIR=$HOME/target" >> ~/.bashrc # Set a consistent target directory on the native WSL filesystem
       if: runner.os == 'Windows'
-    - name: Initialize mise 
-      run: |
-        curl https://mise.run/bash | sh
-        mise install
+    - name: Install mise 
+      run: curl https://mise.run/bash | sh
+    - name: Install mise Tools
+      run: mise trust --yes && mise install --yes
     - name: Install Rust Toolchain
       run: rustup show
     - name: Build
