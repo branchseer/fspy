@@ -7,8 +7,7 @@ use std::{
 };
 use test_utils::assert_contains;
 
-use fspy::{AccessMode, PathAccess, PathAccessIterable, TrackedChild};
-use winapi::shared::cfg;
+use fspy::{AccessMode, PathAccessIterable, TrackedChild};
 
 async fn track_node_script(script: &str) -> io::Result<PathAccessIterable> {
     let mut command = fspy::Spy::global()?.new_command("node");
@@ -40,8 +39,8 @@ async fn read_sync() -> io::Result<()> {
 
 #[tokio::test]
 async fn read_dir_sync() -> io::Result<()> {
-    let accesses = track_node_script("try { fs.readdirSync('C:/Users') } catch {}").await?;
-    assert_contains(&accesses, Path::new("C:/Users"), AccessMode::ReadDir);
+    let accesses = track_node_script("try { fs.readdirSync('.') } catch {}").await?;
+    assert_contains(&accesses, &current_dir().unwrap(), AccessMode::ReadDir);
     Ok(())
 }
 
@@ -50,7 +49,7 @@ async fn subprocess() -> io::Result<()> {
     let cmd = if cfg!(windows) {
         r#"'cmd', ['/c', 'type hello']"#
     } else {
-        r#"'/bin/sh', ['-c', 'echo hello']"#
+        r#"'/bin/sh', ['-c', 'cat hello']"#
     };
     let accesses = track_node_script(&format!(
         "try {{ child_process.spawnSync({cmd}, {{ stdio: 'ignore' }}) }} catch {{}}"
