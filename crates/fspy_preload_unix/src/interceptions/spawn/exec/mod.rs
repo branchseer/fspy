@@ -226,6 +226,6 @@ mod linux_only {
         let _unused = fexecve::original;
         let prog = format!("/proc/self/fd/{}\0", fd);
         let prog = prog.as_ptr();
-        handle_exec(ExecResolveConfig::search_path_disabled(), prog, argv, envp)
+        handle_exec(ExecResolveConfig::search_path_disabled(), prog.cast(), argv, envp)
     }
 }
